@@ -73,9 +73,9 @@ const CONFIG = {
   PUSH: 0.9,         // 推沙強度
   POUR: 1.3,         // 灑沙速率
   SMOOTH: 0.85,      // 抹平強度
-  BASE: 0.12,        // 鋪沙的基礎厚度（越小初始越亮）
+  BASE: 0.10,        // 鋪沙的基礎厚度（越小初始越亮）
   BASE_NOISE: 0.02,  // 鋪沙的不均勻度
-  ABSORB: 4.5,       // 燈箱吸光係數（越大，沙越顯暗）
+  ABSORB: 4.0,       // 燈箱吸光係數（越大，沙越顯暗）
 };
 /* ============================================ */
 
@@ -108,7 +108,7 @@ function locs(p, names){ const o={}; names.forEach(n=>o[n]=gl.getUniformLocation
 
 const VS = "#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.,1.);}";
 
-/* ---------- 沙層模擬（高度場 + 安息角鬆弛 + 筆刷） ---------- */
+/* ---------- 沙層模擬（高度場 + 安息角鬆弛 + 線段筆刷） ---------- */
 const SIM_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uPrev;
@@ -118,7 +118,11 @@ uniform int   uCount;
 uniform vec4  uBrush[10];      // xy=位置(uv) z=半徑(texel) w=強度
 uniform vec4  uBrushPrev[10];  // xy=上一幀位置 z=模式(0推 1灑 2抹)
 out vec4 o;
-float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float hash21(vec2 p){
+  vec3 p3=fract(vec3(p.xyx)*0.1031);
+  p3+=dot(p3,p3.yzx+33.33);
+  return fract((p3.x+p3.y)*p3.z);
+}
 void main(){
   vec2 uv = gl_FragCoord.xy/uSimSize;
   vec2 tx = 1.0/uSimSize;
@@ -137,7 +141,7 @@ void main(){
   float iE=min(hE,max(0.,hE-h-uTalus)), iW=min(hW,max(0.,hW-h-uTalus));
   float nh = h - uFlow*cap*outSum + uFlow*(iN+iS+iE+iW);
 
-  // 手指筆刷
+  // 手指筆刷（對「移動線段」取距離，快速滑動也連續）
   vec2 px = uv*uSimSize;
   for(int i=0;i<10;i++){
     if(i>=uCount) break;
@@ -145,13 +149,14 @@ void main(){
     vec2 c=b.xy*uSimSize, cp=bp.xy*uSimSize;
     float rad=b.z, str=b.w;
     int mode=int(bp.z+0.5);
-    float dist=length(px-c);
+    vec2 ba=c-cp;
+    float tt=clamp(dot(px-cp,ba)/max(dot(ba,ba),1e-4),0.,1.);
+    float dist=length(px-(cp+ba*tt));
     float fall=1.0-smoothstep(rad*0.3, rad, dist);
     if(fall<=0.001) continue;
     if(mode==0){                       // 推沙：半拉格朗日拖曳 + 指腹壓痕
-      vec2 d=c-cp;
-      vec2 dc=clamp(d, vec2(-rad*2.0), vec2(rad*2.0));
-      float amt=fall*clamp(length(d)/max(rad,1.0)*2.5, 0., 1.)*str;
+      vec2 dc=clamp(ba, vec2(-rad*2.0), vec2(rad*2.0));
+      float amt=fall*clamp(length(ba)/max(rad,1.0)*2.5, 0., 1.)*str;
       float behind=texture(uPrev,(px-dc)/uSimSize).r;
       nh=mix(nh,behind,amt);
       nh-=nh*fall*amt*0.07;
@@ -167,7 +172,7 @@ void main(){
   o=vec4(clamp(nh,0.,2.5),0.,0.,1.);
 }`;
 
-/* ---------- 燈箱渲染（透光 + 立體光 + 顆粒閃爍） ---------- */
+/* ---------- 燈箱渲染（透光 + 立體光 + 方向陰影 + 顆粒閃爍） ---------- */
 const REND_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uHeight;
@@ -175,7 +180,11 @@ uniform vec2  uCanvas, uSimSize;
 uniform vec3  uLight;
 uniform float uTime, uAbsorb;
 out vec4 o;
-float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float hash21(vec2 p){
+  vec3 p3=fract(vec3(p.xyx)*0.1031);
+  p3+=dot(p3,p3.yzx+33.33);
+  return fract((p3.x+p3.y)*p3.z);
+}
 void main(){
   vec2 uv = gl_FragCoord.xy/uCanvas;
   vec2 tx = 1.0/uSimSize;
@@ -190,24 +199,37 @@ void main(){
   float hh = mix(h,hb,0.35);
 
   float presence = smoothstep(0.004,0.05,h);
-  vec2 grad = vec2(hE-hW, hN-hS);
-  vec3 n = normalize(vec3(-grad*40.0, 1.0));
-  float diff = clamp(dot(n, normalize(vec3(-0.35,0.4,0.85))), 0., 1.);
 
-  float intensity = 0.05 + 0.95*exp(-uAbsorb*hh);   // 越薄越亮，越厚越暗
-  vec3 col = uLight * intensity * 1.15;
-  col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);   // 沙的琥珀色濾光
-  col *= mix(1.0, 0.62+0.75*diff, presence);                     // 沙脊的立體感
+  // 法線（加強立體感）
+  vec2 grad = vec2(hE-hW, hN-hS);
+  vec3 n = normalize(vec3(-grad*70.0, 1.0));
+  vec3 L = normalize(vec3(-0.45,0.5,0.62));
+  float diff = clamp(dot(n,L), 0., 1.);
+
+  // 方向性遮蔽：沙堆在背光側投下陰影 → 堆疊感
+  vec2 ld = normalize(vec2(-0.55,0.7));
+  float s1 = max(0.0, texture(uHeight, uv+ld*tx*2.0).r - h);
+  float s2 = max(0.0, texture(uHeight, uv+ld*tx*5.0).r - h);
+  float s3 = max(0.0, texture(uHeight, uv+ld*tx*9.0).r - h);
+  float shadow = 1.0 - clamp((s1 + s2*0.7 + s3*0.45)*28.0, 0.0, 0.65);
+
+  float intensity = 0.06 + 1.15*exp(-uAbsorb*hh);   // 越薄越亮，越厚越暗
+  vec3 col = uLight * intensity;
+  col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);  // 沙的琥珀色濾光
+  col *= mix(1.0, 0.55+0.85*diff, presence);                    // 沙脊受光
+  col *= mix(1.0, shadow, presence);                            // 背光陰影
 
   vec2 gp = uv*uSimSize;
   float g = hash21(floor(gp));
-  col *= 1.0 + (g-0.5)*0.16*presence;                            // 顆粒
+  col *= 1.0 + (g-0.5)*0.22*presence;                // 顆粒
   float sp = hash21(floor(gp)+floor(uTime*7.0)*7.13);
   float tw = 0.5+0.5*sin(uTime*4.0+sp*60.0);
-  col += uLight * step(0.996,sp)*tw*presence*0.9;                // 沙粒閃爍
-  col *= 0.94 + 0.06*sin(uv.x*3.7+1.0)*sin(uv.y*2.9+2.0);       // 燈箱光照不均
+  col += uLight * step(0.997,sp)*tw*presence*0.8;    // 沙粒閃爍
+
+  col *= 0.94 + 0.06*sin(uv.x*3.7+1.0)*sin(uv.y*2.9+2.0);  // 燈箱光照不均
   float d = distance(uv, vec2(0.5));
-  col *= 1.0 - 0.32*smoothstep(0.45,0.85,d);                     // 暗角
+  col *= 1.0 - 0.32*smoothstep(0.45,0.85,d);          // 暗角
+  col = pow(col, vec3(0.9));                          // 提亮中間調
   o = vec4(col,1.0);
 }`;
 
@@ -216,7 +238,11 @@ const FILL_FS = `#version 300 es
 precision highp float;
 uniform float uBase,uAmp,uSeed;
 out vec4 o;
-float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float hash21(vec2 p){
+  vec3 p3=fract(vec3(p.xyx)*0.1031);
+  p3+=dot(p3,p3.yzx+33.33);
+  return fract((p3.x+p3.y)*p3.z);
+}
 float vnoise(vec2 p){
   vec2 i=floor(p), f=fract(p);
   vec2 u=f*f*(3.0-2.0*f);
