@@ -499,6 +499,7 @@ function enterFree(){
   bar.classList.remove('hidden');
   setCap('自由發揮');
   setTimeout(()=>{ if(!guiding) clearCap(); },2600);
+  toast('可隨時以工具列的 🧭 引導 重新進入引導');
 }
 function startGuide(){
   fillBoth(); drawnTime=0; drawStart=0; windStart=0;
