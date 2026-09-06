@@ -67,15 +67,15 @@
 const CONFIG = {
   SIM_MAX: 896,      // 沙層模擬網格的最大邊長（越大越細，越耗效能）
   TALUS: 0.0015,     // 安息角：沙堆能保持的最大坡度（越小沙越「挺」）
-  FLOW: 0.34,        // 沙流動的速度
-  RELAX_STEPS: 2,    // 每幀鬆弛迭代次數
+  FLOW: 0.12,        // 沙流動的速度（穩定上限 0.25，別超過）
+  RELAX_STEPS: 3,    // 每幀鬆弛迭代次數
   BRUSH_R: 0.05,     // 筆刷半徑（螢幕短邊比例）
   PUSH: 0.9,         // 推沙強度
   POUR: 1.3,         // 灑沙速率
   SMOOTH: 0.85,      // 抹平強度
-  BASE: 0.16,        // 鋪沙的基礎厚度
-  BASE_NOISE: 0.02,  // 鋪沙的顆粒不均勻度
-  ABSORB: 5.0,       // 燈箱吸光係數（越大，沙越顯暗）
+  BASE: 0.12,        // 鋪沙的基礎厚度（越小初始越亮）
+  BASE_NOISE: 0.02,  // 鋪沙的不均勻度
+  ABSORB: 4.5,       // 燈箱吸光係數（越大，沙越顯暗）
 };
 /* ============================================ */
 
@@ -116,7 +116,7 @@ uniform vec2  uSimSize;
 uniform float uTalus, uFlow, uTime, uDt;
 uniform int   uCount;
 uniform vec4  uBrush[10];      // xy=位置(uv) z=半徑(texel) w=強度
-uniform vec4  uBrushPrev[10];  // xy=上一幀位置 z=模式(0推 1灑 2抹) 
+uniform vec4  uBrushPrev[10];  // xy=上一幀位置 z=模式(0推 1灑 2抹)
 out vec4 o;
 float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 void main(){
@@ -211,14 +211,25 @@ void main(){
   o = vec4(col,1.0);
 }`;
 
+/* ---------- 鋪沙（多層值噪聲，模擬手鋪痕跡） ---------- */
 const FILL_FS = `#version 300 es
 precision highp float;
 uniform float uBase,uAmp,uSeed;
 out vec4 o;
 float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vnoise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  vec2 u=f*f*(3.0-2.0*f);
+  float a=hash21(i), b=hash21(i+vec2(1.,0.)), c=hash21(i+vec2(0.,1.)), d=hash21(i+vec2(1.,1.));
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
 void main(){
-  float r=hash21(gl_FragCoord.xy+uSeed);
-  o=vec4(uBase+(r-0.5)*2.0*uAmp,0.,0.,1.);
+  vec2 p=gl_FragCoord.xy;
+  float m1=vnoise(p*0.05+uSeed);        // 大塊不均勻（手鋪痕跡）
+  float m2=vnoise(p*0.22+uSeed*2.7);    // 中塊
+  float g =hash21(p+uSeed);             // 細顆粒
+  float h=uBase + (m1-0.5)*uAmp*3.0 + (m2-0.5)*uAmp*1.2 + (g-0.5)*uAmp*0.7;
+  o=vec4(max(h,0.0),0.,0.,1.);
 }`;
 
 const COPY_FS = `#version 300 es
