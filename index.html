@@ -66,17 +66,17 @@
 "use strict";
 /* ================= 可調參數 ================= */
 const CONFIG = {
-  SIM_MAX: 896,      // 沙層模擬網格的最大邊長（越大越細，越耗效能）
-  TALUS: 0.0015,     // 安息角：沙堆能保持的最大坡度（越小沙越「挺」）
-  FLOW: 0.12,        // 沙流動的速度（穩定上限 0.25，別超過）
-  RELAX_STEPS: 3,    // 每幀鬆弛迭代次數
+  SIM_MAX: 896,      // 沙層模擬網格的最大邊長
+  TALUS: 0.008,      // 安息角：越大沙堆越穩定、不「化開」
+  FLOW: 0.08,        // 沙流動的速度（穩定上限 0.25）
+  RELAX_STEPS: 2,    // 每幀鬆弛迭代次數
   BRUSH_R: 0.05,     // 筆刷半徑（螢幕短邊比例）
   PUSH: 0.9,         // 推沙強度
   POUR: 1.3,         // 灑沙速率
   SMOOTH: 0.85,      // 抹平強度
-  BASE: 0.10,        // 鋪沙的基礎厚度（越小初始越亮）
+  BASE: 0.12,        // 鋪沙的基礎厚度
   BASE_NOISE: 0.02,  // 鋪沙的不均勻度
-  ABSORB: 4.0,       // 燈箱吸光係數（越大，沙越顯暗）
+  ABSORB: 6.0,       // 燈箱吸光係數：越大對比越強
 };
 /* ============================================ */
 
@@ -86,7 +86,7 @@ function fail(msg){ errBox.style.display='flex'; errBox.textContent=msg; throw n
 
 const gl = canvas.getContext('webgl2', {alpha:false, antialias:false, depth:false, stencil:false, powerPreference:'high-performance'});
 if(!gl) fail('此瀏覽器不支援 WebGL2。請將 iPad 更新到 iPadOS 15 以上，或使用 Safari。');
-const useFloat = !!gl.getExtension('EXT_color_buffer_float'); // 無浮點渲染時自動降級為 8bit
+const useFloat = !!gl.getExtension('EXT_color_buffer_float');
 
 const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
 
@@ -109,7 +109,7 @@ function locs(p, names){ const o={}; names.forEach(n=>o[n]=gl.getUniformLocation
 
 const VS = "#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.,1.);}";
 
-/* ---------- 沙層模擬（高度場 + 安息角鬆弛 + 線段筆刷） ---------- */
+/* ---------- 沙層模擬（高度場 + 安息角 + 線段筆刷） ---------- */
 const SIM_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uPrev;
@@ -133,7 +133,7 @@ void main(){
   float hE = texture(uPrev, uv+vec2(tx.x,0.)).r;
   float hW = texture(uPrev, uv-vec2(tx.x,0.)).r;
 
-  // 安息角鬆弛：坡度超過 uTalus 才流動，所以沙痕可以保持形狀
+  // 安息角鬆弛：坡度小於 uTalus 完全不動 → 沙堆固定不化開
   float fN=max(0.,h-hN-uTalus), fS=max(0.,h-hS-uTalus);
   float fE=max(0.,h-hE-uTalus), fW=max(0.,h-hW-uTalus);
   float outSum=fN+fS+fE+fW;
@@ -142,7 +142,7 @@ void main(){
   float iE=min(hE,max(0.,hE-h-uTalus)), iW=min(hW,max(0.,hW-h-uTalus));
   float nh = h - uFlow*cap*outSum + uFlow*(iN+iS+iE+iW);
 
-  // 手指筆刷（對「移動線段」取距離，快速滑動也連續）
+  // 手指筆刷（對移動線段取距離 → 快速滑動也連續）
   vec2 px = uv*uSimSize;
   for(int i=0;i<10;i++){
     if(i>=uCount) break;
@@ -155,21 +155,21 @@ void main(){
     float dist=length(px-(cp+ba*tt));
     float fall=1.0-smoothstep(rad*0.3, rad, dist);
     if(fall<=0.001) continue;
-    if(mode==0){                       // 推沙：核心強清除 + 兩側堆脊 + 少量拖曳
+    if(mode==0){
+      // 推沙：核心一次壓到見底，兩側依當地沙量瞬間堆脊（純本地、無採樣拖曳）
       float mv=clamp(length(ba)*0.15, 0., 1.);
       float moving=clamp(mv*8.0, 0., 1.);
-      vec2 dc=clamp(ba, vec2(-rad*2.0), vec2(rad*2.0));
-      float behindH=texture(uPrev,(px-dc)/uSimSize).r;
-      nh=mix(nh, behindH, fall*(0.25+0.75*mv)*str*0.35);          // 拖曳手感
-      float core=1.0-smoothstep(rad*0.15, rad*0.75, dist);        // 筆刷核心
-      nh*=1.0 - core*moving*(0.3+0.7*mv)*str*0.6;                 // 一次推開見底
-      float ring=smoothstep(rad*0.35,rad*0.65,dist)*(1.0-smoothstep(rad*0.7,rad,dist));
-      nh+=ring*moving*mv*str*0.45*behindH;                        // 沙推往兩側成脊
-    } else if(mode==1){                // 灑沙：隨機顆粒堆積
+      float act=str*moving*(0.35+0.65*clamp(mv*3.0,0.,1.));
+      float dn=dist/rad;
+      float core=1.0-smoothstep(0.2,0.6,dn);
+      float ring=smoothstep(0.45,0.7,dn)*(1.0-smoothstep(0.8,1.0,dn));
+      nh *= 1.0 - core*act;          // 一筆見底
+      nh += ring*act*0.55*h;         // 推出的沙立刻堆在兩側
+    } else if(mode==1){
       float g=hash21(px*0.9+floor(uTime*50.)*13.7);
       float grain=smoothstep(0.35,0.8,g);
       nh+=str*fall*grain*uDt;
-    } else {                           // 抹平
+    } else {
       float avg=(hN+hS+hE+hW)*0.25;
       nh=mix(nh,avg,fall*str*0.85);
     }
@@ -177,7 +177,7 @@ void main(){
   o=vec4(clamp(nh,0.,2.5),0.,0.,1.);
 }`;
 
-/* ---------- 燈箱渲染（透光 + 光暈滲透 + 方向陰影 + 顆粒閃爍） ---------- */
+/* ---------- 燈箱渲染（高對比透光 + 光暈 + 方向陰影） ---------- */
 const REND_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uHeight;
@@ -198,46 +198,42 @@ void main(){
   float hW = texture(uHeight, uv-vec2(tx.x,0.)).r;
   float hN = texture(uHeight, uv+vec2(0.,tx.y)).r;
   float hS = texture(uHeight, uv-vec2(0.,tx.y)).r;
-  // 輕微模糊取樣（小半徑，避免吃掉細亮線）
   float hb = (texture(uHeight,uv+tx*1.5).r+texture(uHeight,uv-tx*1.5).r
              +texture(uHeight,uv+vec2(tx.x,-tx.y)*1.5).r+texture(uHeight,uv+vec2(-tx.x,tx.y)*1.5).r)*0.25;
   float hh = mix(h,hb,0.25);
 
   float presence = smoothstep(0.004,0.05,h);
 
-  // 法線（立體感）
   vec2 grad = vec2(hE-hW, hN-hS);
   vec3 n = normalize(vec3(-grad*70.0, 1.0));
   vec3 L = normalize(vec3(-0.45,0.5,0.62));
   float diff = clamp(dot(n,L), 0., 1.);
 
-  // 方向性遮蔽：沙堆在背光側投下陰影 → 堆疊感
   vec2 ld = normalize(vec2(-0.55,0.7));
   float s1 = max(0.0, texture(uHeight, uv+ld*tx*2.0).r - h);
   float s2 = max(0.0, texture(uHeight, uv+ld*tx*5.0).r - h);
   float s3 = max(0.0, texture(uHeight, uv+ld*tx*9.0).r - h);
   float shadow = 1.0 - clamp((s1 + s2*0.7 + s3*0.45)*28.0, 0.0, 0.65);
 
-  // 透光：越薄越亮；清空處接近過曝的透亮
-  float intensity = 0.08 + 1.25*exp(-uAbsorb*hh);
+  // 高對比透光：見底處接近過曝、沙面壓暗
+  float intensity = 0.05 + 1.35*exp(-uAbsorb*hh);
   vec3 col = uLight * intensity;
-  col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);  // 沙的琥珀色濾光
-  col *= mix(1.0, 0.55+0.85*diff, presence);                   // 沙脊受光
-  col *= mix(1.0, shadow, presence);                           // 背光陰影
-  // 光暈滲透：亮處的光微微暈開 → 燈箱透光感
-  col += uLight * exp(-uAbsorb*hb) * 0.22 * (1.0 - 0.6*presence);
+  col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);
+  col *= mix(1.0, 0.55+0.85*diff, presence);
+  col *= mix(1.0, shadow, presence);
+  col += uLight * exp(-uAbsorb*hb) * 0.25 * (1.0 - 0.6*presence);  // 光暈滲透
 
   vec2 gp = uv*uSimSize;
   float g = hash21(floor(gp));
-  col *= 1.0 + (g-0.5)*0.22*presence;                // 顆粒
+  col *= 1.0 + (g-0.5)*0.22*presence;
   float sp = hash21(floor(gp)+floor(uTime*7.0)*7.13);
   float tw = 0.5+0.5*sin(uTime*4.0+sp*60.0);
-  col += uLight * step(0.997,sp)*tw*presence*0.8;    // 沙粒閃爍
+  col += uLight * step(0.997,sp)*tw*presence*0.8;
 
-  col *= 0.94 + 0.06*sin(uv.x*3.7+1.0)*sin(uv.y*2.9+2.0);  // 燈箱光照不均
+  col *= 0.94 + 0.06*sin(uv.x*3.7+1.0)*sin(uv.y*2.9+2.0);
   float d = distance(uv, vec2(0.5));
-  col *= 1.0 - 0.32*smoothstep(0.45,0.85,d);          // 暗角
-  col = pow(col, vec3(0.9));                          // 提亮中間調
+  col *= 1.0 - 0.32*smoothstep(0.45,0.85,d);
+  col = pow(col, vec3(0.9));
   o = vec4(col,1.0);
 }`;
 
@@ -259,9 +255,9 @@ float vnoise(vec2 p){
 }
 void main(){
   vec2 p=gl_FragCoord.xy;
-  float m1=vnoise(p*0.05+uSeed);        // 大塊不均勻（手鋪痕跡）
-  float m2=vnoise(p*0.22+uSeed*2.7);    // 中塊
-  float g =hash21(p+uSeed);             // 細顆粒
+  float m1=vnoise(p*0.05+uSeed);
+  float m2=vnoise(p*0.22+uSeed*2.7);
+  float g =hash21(p+uSeed);
   float h=uBase + (m1-0.5)*uAmp*3.0 + (m2-0.5)*uAmp*1.2 + (g-0.5)*uAmp*0.7;
   o=vec4(max(h,0.0),0.,0.,1.);
 }`;
@@ -333,7 +329,7 @@ function rebuildSim(keep){
 function resizeCanvas(){
   const dpr=Math.min(devicePixelRatio||1,2);
   let w=Math.round(innerWidth*dpr), h=Math.round(innerHeight*dpr);
-  const cap=3500000;                     // 限制畫布總像素，顧行動 GPU
+  const cap=3500000;
   if(w*h>cap){ const s=Math.sqrt(cap/(w*h)); w=Math.round(w*s); h=Math.round(h*s); }
   canvas.width=w; canvas.height=h;
 }
