@@ -64,6 +64,7 @@
   <button class="tool on" data-tool="push">✋<span>推沙</span></button>
   <button class="tool" data-tool="pour">⏳<span>灑沙</span></button>
   <div class="sep"></div>
+  <button id="guideBtn">🧭<span>引導</span></button>
   <button id="fillBtn">🌘<span>鋪沙</span></button>
   <button id="clearBtn">🗑️<span>清空</span></button>
   <button id="saveBtn">📷<span>儲存</span></button>
@@ -160,20 +161,21 @@ void main(){
 
   vec2 px = uv*uSimSize;
 
-  // 風：扭曲為主（定向拖曳+漣漪+條紋差速），幾乎不減少沙量
+  // 風：完整平流（沙真實位移）+ 陣風剪切 + 漣漪飄動 + 飛沙
   float wlen=length(uWind);
   if(wlen>0.001){
     vec2 wdir=uWind/wlen;
-    float streak=hash21(floor(px*vec2(0.12,0.45)));
-    float gust=hash21(floor(px*0.08)+floor(uTime*6.0)*5.7);
-    vec2 off=wdir*(0.5+1.3*streak)*wlen;
-    off.y+=(gust-0.5)*1.6*wlen;
-    off.y+=sin(px.x*0.045+uTime*2.5)*0.7*wlen;
-    float up=texture(uPrev,(px-off)/uSimSize).r;
-    nh=mix(nh,up,0.5*wlen);                    // 風吹拖曳 → 畫面扭曲
-    float avg4=(hN+hS+hE+hW)*0.25;
-    nh=mix(nh,avg4,0.06*wlen);                 // 邊緣柔化
-    nh*=1.0-wlen*0.0015*(0.3+0.7*streak);      // 極少量吹蝕，畫面仍保有沙
+    float gust  =hash21(floor(px*0.05)+floor(uTime*3.0)*7.7);   // 低頻陣風
+    float streak=hash21(floor(px*vec2(0.10,0.35)));            // 沿風向條流
+    float speed=(0.3+1.1*streak)*(0.5+0.9*gust);               // 差速 → 剪切扭曲
+    vec2 off=wdir*speed*1.5*wlen;
+    float phase=px.x*0.03+px.y*0.01-uTime*4.0;                 // 行進漣漪
+    off.y+=sin(phase)*(0.4+0.9*streak)*wlen;
+    off.x+=sin(phase*0.7+1.7)*0.4*wlen;
+    nh=texture(uPrev,(px-off)/uSimSize).r;                     // 真實位移，非疊圖
+    float fly=hash21(floor(px)+floor(uTime*30.0)*3.3);
+    nh+=step(0.985,fly)*wlen*0.015;                            // 飛沙顆粒
+    nh*=1.0-wlen*0.0008*(0.3+0.7*streak);                      // 極輕侵蝕
   }
 
   // 手指筆刷
@@ -507,6 +509,7 @@ function startGuide(){
   guide();
 }
 skipBtn.addEventListener('click',()=>{ gVer++; enterFree(); });
+document.getElementById('guideBtn').addEventListener('click',()=>{ startGuide(); });
 
 async function guide(){
   const v=++gVer; const ok=()=>v===gVer&&guiding;
@@ -532,7 +535,7 @@ async function guide(){
   await wait(4600); if(!ok())return;
   clearCap(); await wait(700); if(!ok())return;
 
-  windStart=performance.now()/1000;           // 風吹過，畫面扭曲但仍在
+  windStart=performance.now()/1000;           // 風吹過：扭曲、拉絲、飄動
   await wait(CONFIG.WIND_DUR*1000+400); if(!ok())return;
 
   setCap('沙怎麼聚散，\n光卻一直這樣明亮，\n沒有轉變過。');
