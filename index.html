@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>光箱沙畫 · Sand Lightbox</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#000}
+  body{font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+       -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #frame{position:fixed;inset:0;pointer-events:none;z-index:2;
+         box-shadow:inset 0 0 90px rgba(0,0,0,.5),inset 0 0 8px rgba(0,0,0,.9)}
+  #hint{position:fixed;top:16%;left:50%;transform:translateX(-50%);z-index:5;
+        color:rgba(255,235,200,.9);font-size:18px;letter-spacing:3px;
+        text-shadow:0 1px 10px rgba(0,0,0,.7);pointer-events:none;transition:opacity 1.5s}
+  #bar{position:fixed;left:50%;bottom:max(14px,env(safe-area-inset-bottom));z-index:10;
+       transform:translateX(-50%);display:flex;align-items:center;gap:4px;
+       background:rgba(20,17,14,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+       padding:8px 10px;border-radius:22px;border:1px solid rgba(255,255,255,.09);
+       transition:transform .35s,opacity .35s}
+  #bar.hidden{transform:translateX(-50%) translateY(calc(100% + 40px));opacity:0;pointer-events:none}
+  #bar button{min-width:54px;padding:6px 6px;border-radius:14px;background:transparent;border:none;
+       color:#cfc6b8;font-size:22px;display:flex;flex-direction:column;align-items:center;gap:2px;
+       touch-action:manipulation}
+  #bar button span{font-size:11px;letter-spacing:2px}
+  #bar button.on{background:rgba(255,190,110,.22);color:#ffd9a0}
+  .sep{width:1px;height:40px;background:rgba(255,255,255,.12);margin:0 4px}
+  .lightWrap{display:flex;flex-direction:column;align-items:center;gap:2px;color:#cfc6b8;font-size:15px}
+  .lightWrap span{font-size:11px;letter-spacing:2px}
+  #lightRange{width:100px;accent-color:#ffbf78}
+  #showTab{position:fixed;left:50%;bottom:10px;transform:translateX(-50%) translateY(80px);z-index:10;
+       background:rgba(20,17,14,.78);color:#ffd9a0;border:1px solid rgba(255,255,255,.09);
+       border-radius:16px;padding:8px 18px;font-size:14px;letter-spacing:2px;
+       transition:transform .35s;touch-action:manipulation}
+  #showTab.show{transform:translateX(-50%) translateY(0)}
+  #err{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
+       color:#e8dcc8;font-size:16px;text-align:center;padding:40px;line-height:1.8}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="frame"></div>
+<div id="hint">以手指推開沙子作畫 ✨</div>
+
+<div id="bar">
+  <button class="tool on" data-tool="push">✋<span>推沙</span></button>
+  <button class="tool" data-tool="pour">⏳<span>灑沙</span></button>
+  <button class="tool" data-tool="smooth">🖐️<span>抹平</span></button>
+  <div class="sep"></div>
+  <button id="fillBtn">🌘<span>鋪沙</span></button>
+  <button id="clearBtn">🗑️<span>清空</span></button>
+  <button id="saveBtn">📷<span>儲存</span></button>
+  <div class="sep"></div>
+  <div class="lightWrap">💡<input id="lightRange" type="range" min="0" max="100" value="30"><span>燈光</span></div>
+  <button id="hideBtn">▾<span>收起</span></button>
+</div>
+<button id="showTab">🛠️ 工具</button>
+<div id="err"></div>
+
+<script>
+"use strict";
+/* ================= 可調參數 ================= */
+const CONFIG = {
+  SIM_MAX: 896,      // 沙層模擬網格的最大邊長（越大越細，越耗效能）
+  TALUS: 0.0015,     // 安息角：沙堆能保持的最大坡度（越小沙越「挺」）
+  FLOW: 0.34,        // 沙流動的速度
+  RELAX_STEPS: 2,    // 每幀鬆弛迭代次數
+  BRUSH_R: 0.05,     // 筆刷半徑（螢幕短邊比例）
+  PUSH: 0.9,         // 推沙強度
+  POUR: 1.3,         // 灑沙速率
+  SMOOTH: 0.85,      // 抹平強度
+  BASE: 0.16,        // 鋪沙的基礎厚度
+  BASE_NOISE: 0.02,  // 鋪沙的顆粒不均勻度
+  ABSORB: 5.0,       // 燈箱吸光係數（越大，沙越顯暗）
+};
+/* ============================================ */
+
+const canvas = document.getElementById('c');
+const errBox = document.getElementById('err');
+function fail(msg){ errBox.style.display='flex'; errBox.textContent=msg; throw new Error(msg); }
+
+const gl = canvas.getContext('webgl2', {alpha:false, antialias:false, depth:false, stencil:false, powerPreference:'high-performance'});
+if(!gl) fail('此瀏覽器不支援 WebGL2。請將 iPad 更新到 iPadOS 15 以上，或使用 Safari。');
+const useFloat = !!gl.getExtension('EXT_color_buffer_float'); // 無浮點渲染時自動降級為 8bit
+
+const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+
+/* ---------- shader 編譯 ---------- */
+function sh(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) fail('Shader 錯誤: ' + gl.getShaderInfoLog(s));
+  return s;
+}
+function prog(vsSrc, fsSrc){
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) fail('Link 錯誤: ' + gl.getProgramInfoLog(p));
+  return p;
+}
+function locs(p, names){ const o={}; names.forEach(n=>o[n]=gl.getUniformLocation(p,n)); return o; }
+
+const VS = "#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.,1.);}";
+
+/* ---------- 沙層模擬（高度場 + 安息角鬆弛 + 筆刷） ---------- */
+const SIM_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uPrev;
+uniform vec2  uSimSize;
+uniform float uTalus, uFlow, uTime, uDt;
+uniform int   uCount;
+uniform vec4  uBrush[10];      // xy=位置(uv) z=半徑(texel) w=強度
+uniform vec4  uBrushPrev[10];  // xy=上一幀位置 z=模式(0推 1灑 2抹) 
+out vec4 o;
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+void main(){
+  vec2 uv = gl_FragCoord.xy/uSimSize;
+  vec2 tx = 1.0/uSimSize;
+  float h  = texture(uPrev, uv).r;
+  float hN = texture(uPrev, uv+vec2(0.,tx.y)).r;
+  float hS = texture(uPrev, uv-vec2(0.,tx.y)).r;
+  float hE = texture(uPrev, uv+vec2(tx.x,0.)).r;
+  float hW = texture(uPrev, uv-vec2(tx.x,0.)).r;
+
+  // 安息角鬆弛：坡度超過 uTalus 才流動，所以沙痕可以保持形狀
+  float fN=max(0.,h-hN-uTalus), fS=max(0.,h-hS-uTalus);
+  float fE=max(0.,h-hE-uTalus), fW=max(0.,h-hW-uTalus);
+  float outSum=fN+fS+fE+fW;
+  float cap = outSum>h ? h/outSum : 1.0;
+  float iN=min(hN,max(0.,hN-h-uTalus)), iS=min(hS,max(0.,hS-h-uTalus));
+  float iE=min(hE,max(0.,hE-h-uTalus)), iW=min(hW,max(0.,hW-h-uTalus));
+  float nh = h - uFlow*cap*outSum + uFlow*(iN+iS+iE+iW);
+
+  // 手指筆刷
+  vec2 px = uv*uSimSize;
+  for(int i=0;i<10;i++){
+    if(i>=uCount) break;
+    vec4 b=uBrush[i], bp=uBrushPrev[i];
+    vec2 c=b.xy*uSimSize, cp=bp.xy*uSimSize;
+    float rad=b.z, str=b.w;
+    int mode=int(bp.z+0.5);
+    float dist=length(px-c);
+    float fall=1.0-smoothstep(rad*0.3, rad, dist);
+    if(fall<=0.001) continue;
+    if(mode==0){                       // 推沙：半拉格朗日拖曳 + 指腹壓痕
+      vec2 d=c-cp;
+      vec2 dc=clamp(d, vec2(-rad*2.0), vec2(rad*2.0));
+      float amt=fall*clamp(length(d)/max(rad,1.0)*2.5, 0., 1.)*str;
+      float behind=texture(uPrev,(px-dc)/uSimSize).r;
+      nh=mix(nh,behind,amt);
+      nh-=nh*fall*amt*0.07;
+    } else if(mode==1){                // 灑沙：隨機顆粒堆積
+      float g=hash21(px*0.9+floor(uTime*50.)*13.7);
+      float grain=smoothstep(0.35,0.8,g);
+      nh+=str*fall*grain*uDt;
+    } else {                           // 抹平
+      float avg=(hN+hS+hE+hW)*0.25;
+      nh=mix(nh,avg,fall*str*0.85);
+    }
+  }
+  o=vec4(clamp(nh,0.,2.5),0.,0.,1.);
+}`;
+
+/* ---------- 燈箱渲染（透光 + 立體光 + 顆粒閃爍） ---------- */
+const REND_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uHeight;
+uniform vec2  uCanvas, uSimSize;
+uniform vec3  uLight;
+uniform float uTime, uAbsorb;
+out vec4 o;
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+void main(){
+  vec2 uv = gl_FragCoord.xy/uCanvas;
+  vec2 tx = 1.0/uSimSize;
+  float h  = texture(uHeight, uv).r;
+  float hE = texture(uHeight, uv+vec2(tx.x,0.)).r;
+  float hW = texture(uHeight, uv-vec2(tx.x,0.)).r;
+  float hN = texture(uHeight, uv+vec2(0.,tx.y)).r;
+  float hS = texture(uHeight, uv-vec2(0.,tx.y)).r;
+  // 輕微模糊取樣，模擬光在沙層下的暈染
+  float hb = (texture(uHeight,uv+tx*2.5).r+texture(uHeight,uv-tx*2.5).r
+             +texture(uHeight,uv+vec2(tx.x,-tx.y)*2.5).r+texture(uHeight,uv+vec2(-tx.x,tx.y)*2.5).r)*0.25;
+  float hh = mix(h,hb,0.35);
+
+  float presence = smoothstep(0.004,0.05,h);
+  vec2 grad = vec2(hE-hW, hN-hS);
+  vec3 n = normalize(vec3(-grad*40.0, 1.0));
+  float diff = clamp(dot(n, normalize(vec3(-0.35,0.4,0.85))), 0., 1.);
+
+  float intensity = 0.05 + 0.95*exp(-uAbsorb*hh);   // 越薄越亮，越厚越暗
+  vec3 col = uLight * intensity * 1.15;
+  col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);   // 沙的琥珀色濾光
+  col *= mix(1.0, 0.62+0.75*diff, presence);                     // 沙脊的立體感
+
+  vec2 gp = uv*uSimSize;
+  float g = hash21(floor(gp));
+  col *= 1.0 + (g-0.5)*0.16*presence;                            // 顆粒
+  float sp = hash21(floor(gp)+floor(uTime*7.0)*7.13);
+  float tw = 0.5+0.5*sin(uTime*4.0+sp*60.0);
+  col += uLight * step(0.996,sp)*tw*presence*0.9;                // 沙粒閃爍
+  col *= 0.94 + 0.06*sin(uv.x*3.7+1.0)*sin(uv.y*2.9+2.0);       // 燈箱光照不均
+  float d = distance(uv, vec2(0.5));
+  col *= 1.0 - 0.32*smoothstep(0.45,0.85,d);                     // 暗角
+  o = vec4(col,1.0);
+}`;
+
+const FILL_FS = `#version 300 es
+precision highp float;
+uniform float uBase,uAmp,uSeed;
+out vec4 o;
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+void main(){
+  float r=hash21(gl_FragCoord.xy+uSeed);
+  o=vec4(uBase+(r-0.5)*2.0*uAmp,0.,0.,1.);
+}`;
+
+const COPY_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uDest;
+out vec4 o;
+void main(){ o=vec4(texture(uSrc, gl_FragCoord.xy/uDest).r,0.,0.,1.); }`;
+
+const sp = prog(VS, SIM_FS),  SL = locs(sp, ['uPrev','uSimSize','uTalus','uFlow','uTime','uDt','uCount','uBrush','uBrushPrev']);
+const rp = prog(VS, REND_FS), RL = locs(rp, ['uHeight','uCanvas','uSimSize','uLight','uTime','uAbsorb']);
+const fp = prog(VS, FILL_FS), FL = locs(fp, ['uBase','uAmp','uSeed']);
+const cp = prog(VS, COPY_FS), CL = locs(cp, ['uSrc','uDest']);
+
+/* ---------- 紋理 / 幀緩衝 ---------- */
+let simW=0, simH=0, tex=null, ri=0;
+function makeTarget(){
+  const t=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  if(useFloat) gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,simW,simH,0,gl.RGBA,gl.HALF_FLOAT,null);
+  else         gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,simW,simH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  const f=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE) fail('Framebuffer 不完整');
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  return {tex:t, fbo:f};
+}
+function fillTarget(tgt, seed){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,tgt.fbo);
+  gl.viewport(0,0,simW,simH);
+  gl.useProgram(fp);
+  gl.uniform1f(FL.uBase,CONFIG.BASE); gl.uniform1f(FL.uAmp,CONFIG.BASE_NOISE); gl.uniform1f(FL.uSeed,seed);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+function copyInto(src,dst){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,dst.fbo);
+  gl.viewport(0,0,simW,simH);
+  gl.useProgram(cp);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,src.tex);
+  gl.uniform1i(CL.uSrc,0); gl.uniform2f(CL.uDest,simW,simH);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+function fillBoth(){ fillTarget(tex[0],1.0); fillTarget(tex[1],1.0); }
+function clearAll(){
+  for(const t of tex){
+    gl.bindFramebuffer(gl.FRAMEBUFFER,t.fbo);
+    gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+}
+function initSimSize(){
+  const aspect = innerWidth/Math.max(1,innerHeight);
+  if(aspect>=1){ simW=CONFIG.SIM_MAX; simH=Math.max(64,Math.round(CONFIG.SIM_MAX/aspect)); }
+  else{ simH=CONFIG.SIM_MAX; simW=Math.max(64,Math.round(CONFIG.SIM_MAX*aspect)); }
+}
+function rebuildSim(keep){
+  const old = tex, oldRi = ri;
+  initSimSize();
+  tex=[makeTarget(),makeTarget()]; ri=0;
+  if(keep && old){ copyInto(old[oldRi],tex[0]); copyInto(tex[0],tex[1]);
+    old.forEach(t=>{gl.deleteTexture(t.tex);gl.deleteFramebuffer(t.fbo);});
+  } else fillBoth();
+}
+function resizeCanvas(){
+  const dpr=Math.min(devicePixelRatio||1,2);
+  let w=Math.round(innerWidth*dpr), h=Math.round(innerHeight*dpr);
+  const cap=3500000;                     // 限制畫布總像素，顧行動 GPU
+  if(w*h>cap){ const s=Math.sqrt(cap/(w*h)); w=Math.round(w*s); h=Math.round(h*s); }
+  canvas.width=w; canvas.height=h;
+}
+
+/* ---------- 多點觸控 ---------- */
+const pointers=new Map();
+let tool='push';
+const TOOL_ID={push:0,pour:1,smooth:2};
+function toUV(e){
+  const r=canvas.getBoundingClientRect();
+  return {u:(e.clientX-r.left)/r.width, v:1-(e.clientY-r.top)/r.height};
+}
+canvas.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+  const {u,v}=toUV(e);
+  pointers.set(e.pointerId,{u,v,pu:u,pv:v});
+  hideHint();
+});
+canvas.addEventListener('pointermove',e=>{
+  const p=pointers.get(e.pointerId); if(!p) return;
+  const {u,v}=toUV(e); p.u=u; p.v=v;
+});
+['pointerup','pointercancel','lostpointercapture'].forEach(t=>
+  canvas.addEventListener(t,e=>pointers.delete(e.pointerId)));
+document.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('gesturestart',e=>e.preventDefault());
+
+/* ---------- 主迴圈 ---------- */
+let lastT=0;
+function step(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,tex[1-ri].fbo);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex[ri].tex);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  ri=1-ri;
+}
+function render(now){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(rp);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex[ri].tex);
+  gl.uniform1i(RL.uHeight,0);
+  gl.uniform2f(RL.uCanvas,canvas.width,canvas.height);
+  gl.uniform2f(RL.uSimSize,simW,simH);
+  gl.uniform3f(RL.uLight,lightCol[0],lightCol[1],lightCol[2]);
+  gl.uniform1f(RL.uTime,now);
+  gl.uniform1f(RL.uAbsorb,CONFIG.ABSORB);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+function frame(nowMs){
+  requestAnimationFrame(frame);
+  const now=nowMs/1000;
+  const dt=Math.min(0.033, lastT? now-lastT : 0.016); lastT=now;
+
+  const b=new Float32Array(40), bp=new Float32Array(40);
+  let n=0;
+  const baseR=CONFIG.BRUSH_R*Math.min(simW,simH);
+  const rad = tool==='pour'? baseR*1.3 : baseR;
+  const str = tool==='push'? CONFIG.PUSH : tool==='pour'? CONFIG.POUR : CONFIG.SMOOTH;
+  pointers.forEach(p=>{
+    if(n>=10) return;
+    b.set([p.u,p.v,rad,str],n*4);
+    bp.set([p.pu,p.pv,TOOL_ID[tool],0],n*4);
+    n++;
+  });
+  pointers.forEach(p=>{p.pu=p.u;p.pv=p.v;});
+
+  gl.useProgram(sp);
+  gl.viewport(0,0,simW,simH);
+  gl.uniform1i(SL.uPrev,0);
+  gl.uniform2f(SL.uSimSize,simW,simH);
+  gl.uniform1f(SL.uTalus,CONFIG.TALUS);
+  gl.uniform1f(SL.uFlow,CONFIG.FLOW);
+  gl.uniform1f(SL.uTime,now);
+  gl.uniform1f(SL.uDt,dt);
+  gl.uniform4fv(SL.uBrush,b);
+  gl.uniform4fv(SL.uBrushPrev,bp);
+  gl.uniform1i(SL.uCount,n);
+  step();
+  gl.uniform1i(SL.uCount,0);
+  for(let i=0;i<CONFIG.RELAX_STEPS;i++) step();
+  render(now);
+}
+
+/* ---------- UI ---------- */
+const bar=document.getElementById('bar'), showTab=document.getElementById('showTab');
+const hint=document.getElementById('hint');
+let hintHidden=false;
+function hideHint(){ if(!hintHidden){hintHidden=true;hint.style.opacity='0';} }
+setTimeout(hideHint,6000);
+
+document.querySelectorAll('#bar .tool').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    tool=btn.dataset.tool;
+    document.querySelectorAll('#bar .tool').forEach(x=>x.classList.toggle('on',x===btn));
+  });
+});
+document.getElementById('fillBtn').addEventListener('click',()=>fillBoth());
+document.getElementById('clearBtn').addEventListener('click',()=>clearAll());
+document.getElementById('saveBtn').addEventListener('click',()=>{
+  render(performance.now()/1000);
+  const d=new Date(), pad=x=>String(x).padStart(2,'0');
+  const a=document.createElement('a');
+  a.download=`sand-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.png`;
+  a.href=canvas.toDataURL('image/png');
+  a.click();
+});
+document.getElementById('hideBtn').addEventListener('click',()=>{bar.classList.add('hidden');showTab.classList.add('show');});
+showTab.addEventListener('click',()=>{bar.classList.remove('hidden');showTab.classList.remove('show');});
+
+let lightCol=[1,0.75,0.5];
+function mix3(a,b,f){return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];}
+function updateLight(){
+  const t=document.getElementById('lightRange').value/100;
+  const warm=[1.0,0.62,0.30], mid=[1.0,0.92,0.76], cool=[0.80,0.88,1.0];
+  lightCol = t<0.5 ? mix3(warm,mid,t*2) : mix3(mid,cool,(t-0.5)*2);
+}
+document.getElementById('lightRange').addEventListener('input',updateLight);
+updateLight();
+
+/* ---------- 啟動 ---------- */
+let rsT=null;
+addEventListener('resize',()=>{
+  resizeCanvas();
+  clearTimeout(rsT);
+  rsT=setTimeout(()=>rebuildSim(true),300);
+});
+resizeCanvas();
+rebuildSim(false);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
