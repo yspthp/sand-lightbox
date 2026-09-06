@@ -54,6 +54,7 @@
   <button id="fillBtn">🌘<span>鋪沙</span></button>
   <button id="clearBtn">🗑️<span>清空</span></button>
   <button id="saveBtn">📷<span>儲存</span></button>
+  <button id="fsBtn">⛶<span>全螢幕</span></button>
   <div class="sep"></div>
   <div class="lightWrap">💡<input id="lightRange" type="range" min="0" max="100" value="30"><span>燈光</span></div>
   <button id="hideBtn">▾<span>收起</span></button>
@@ -154,12 +155,16 @@ void main(){
     float dist=length(px-(cp+ba*tt));
     float fall=1.0-smoothstep(rad*0.3, rad, dist);
     if(fall<=0.001) continue;
-    if(mode==0){                       // 推沙：半拉格朗日拖曳 + 指腹壓痕
+    if(mode==0){                       // 推沙：核心強清除 + 兩側堆脊 + 少量拖曳
+      float mv=clamp(length(ba)*0.15, 0., 1.);
+      float moving=clamp(mv*8.0, 0., 1.);
       vec2 dc=clamp(ba, vec2(-rad*2.0), vec2(rad*2.0));
-      float amt=fall*clamp(length(ba)/max(rad,1.0)*2.5, 0., 1.)*str;
-      float behind=texture(uPrev,(px-dc)/uSimSize).r;
-      nh=mix(nh,behind,amt);
-      nh-=nh*fall*amt*0.07;
+      float behindH=texture(uPrev,(px-dc)/uSimSize).r;
+      nh=mix(nh, behindH, fall*(0.25+0.75*mv)*str*0.35);          // 拖曳手感
+      float core=1.0-smoothstep(rad*0.15, rad*0.75, dist);        // 筆刷核心
+      nh*=1.0 - core*moving*(0.3+0.7*mv)*str*0.6;                 // 一次推開見底
+      float ring=smoothstep(rad*0.35,rad*0.65,dist)*(1.0-smoothstep(rad*0.7,rad,dist));
+      nh+=ring*moving*mv*str*0.45*behindH;                        // 沙推往兩側成脊
     } else if(mode==1){                // 灑沙：隨機顆粒堆積
       float g=hash21(px*0.9+floor(uTime*50.)*13.7);
       float grain=smoothstep(0.35,0.8,g);
@@ -172,7 +177,7 @@ void main(){
   o=vec4(clamp(nh,0.,2.5),0.,0.,1.);
 }`;
 
-/* ---------- 燈箱渲染（透光 + 立體光 + 方向陰影 + 顆粒閃爍） ---------- */
+/* ---------- 燈箱渲染（透光 + 光暈滲透 + 方向陰影 + 顆粒閃爍） ---------- */
 const REND_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uHeight;
@@ -193,14 +198,14 @@ void main(){
   float hW = texture(uHeight, uv-vec2(tx.x,0.)).r;
   float hN = texture(uHeight, uv+vec2(0.,tx.y)).r;
   float hS = texture(uHeight, uv-vec2(0.,tx.y)).r;
-  // 輕微模糊取樣，模擬光在沙層下的暈染
-  float hb = (texture(uHeight,uv+tx*2.5).r+texture(uHeight,uv-tx*2.5).r
-             +texture(uHeight,uv+vec2(tx.x,-tx.y)*2.5).r+texture(uHeight,uv+vec2(-tx.x,tx.y)*2.5).r)*0.25;
-  float hh = mix(h,hb,0.35);
+  // 輕微模糊取樣（小半徑，避免吃掉細亮線）
+  float hb = (texture(uHeight,uv+tx*1.5).r+texture(uHeight,uv-tx*1.5).r
+             +texture(uHeight,uv+vec2(tx.x,-tx.y)*1.5).r+texture(uHeight,uv+vec2(-tx.x,tx.y)*1.5).r)*0.25;
+  float hh = mix(h,hb,0.25);
 
   float presence = smoothstep(0.004,0.05,h);
 
-  // 法線（加強立體感）
+  // 法線（立體感）
   vec2 grad = vec2(hE-hW, hN-hS);
   vec3 n = normalize(vec3(-grad*70.0, 1.0));
   vec3 L = normalize(vec3(-0.45,0.5,0.62));
@@ -213,11 +218,14 @@ void main(){
   float s3 = max(0.0, texture(uHeight, uv+ld*tx*9.0).r - h);
   float shadow = 1.0 - clamp((s1 + s2*0.7 + s3*0.45)*28.0, 0.0, 0.65);
 
-  float intensity = 0.06 + 1.15*exp(-uAbsorb*hh);   // 越薄越亮，越厚越暗
+  // 透光：越薄越亮；清空處接近過曝的透亮
+  float intensity = 0.08 + 1.25*exp(-uAbsorb*hh);
   vec3 col = uLight * intensity;
   col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);  // 沙的琥珀色濾光
-  col *= mix(1.0, 0.55+0.85*diff, presence);                    // 沙脊受光
-  col *= mix(1.0, shadow, presence);                            // 背光陰影
+  col *= mix(1.0, 0.55+0.85*diff, presence);                   // 沙脊受光
+  col *= mix(1.0, shadow, presence);                           // 背光陰影
+  // 光暈滲透：亮處的光微微暈開 → 燈箱透光感
+  col += uLight * exp(-uAbsorb*hb) * 0.22 * (1.0 - 0.6*presence);
 
   vec2 gp = uv*uSimSize;
   float g = hash21(floor(gp));
@@ -433,6 +441,27 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   a.href=canvas.toDataURL('image/png');
   a.click();
 });
+
+/* ---------- 全螢幕 ---------- */
+const fsBtn=document.getElementById('fsBtn');
+function fsElement(){ return document.fullscreenElement||document.webkitFullscreenElement||null; }
+fsBtn.addEventListener('click',()=>{
+  if(!fsElement()){
+    const el=document.documentElement;
+    let p=null;
+    if(el.requestFullscreen) p=el.requestFullscreen();
+    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    if(p&&p.catch) p.catch(()=>{});
+  }else{
+    if(document.exitFullscreen) document.exitFullscreen();
+    else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+  }
+});
+['fullscreenchange','webkitfullscreenchange'].forEach(ev=>addEventListener(ev,()=>{
+  const on=!!fsElement();
+  fsBtn.innerHTML=(on?'✕':'⛶')+'<span>'+(on?'退出':'全螢幕')+'</span>';
+}));
+
 document.getElementById('hideBtn').addEventListener('click',()=>{bar.classList.add('hidden');showTab.classList.add('show');});
 showTab.addEventListener('click',()=>{bar.classList.remove('hidden');showTab.classList.remove('show');});
 
