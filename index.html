@@ -17,6 +17,10 @@
   #hint{position:fixed;top:16%;left:50%;transform:translateX(-50%);z-index:5;
         color:rgba(255,235,200,.9);font-size:18px;letter-spacing:3px;
         text-shadow:0 1px 10px rgba(0,0,0,.7);pointer-events:none;transition:opacity 1.5s}
+  #toast{position:fixed;top:10%;left:50%;transform:translateX(-50%);z-index:30;
+        background:rgba(20,17,14,.88);color:#ffd9a0;padding:10px 20px;border-radius:14px;
+        font-size:14px;letter-spacing:1px;opacity:0;transition:opacity .4s;
+        pointer-events:none;max-width:82%;text-align:center;line-height:1.7}
   #bar{position:fixed;left:50%;bottom:max(14px,env(safe-area-inset-bottom));z-index:10;
        transform:translateX(-50%);display:flex;align-items:center;gap:4px;
        background:rgba(20,17,14,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
@@ -45,6 +49,7 @@
 <canvas id="c"></canvas>
 <div id="frame"></div>
 <div id="hint">以手指推開沙子作畫 ✨</div>
+<div id="toast"></div>
 
 <div id="bar">
   <button class="tool on" data-tool="push">✋<span>推沙</span></button>
@@ -156,15 +161,15 @@ void main(){
     float fall=1.0-smoothstep(rad*0.3, rad, dist);
     if(fall<=0.001) continue;
     if(mode==0){
-      // 推沙：核心一次壓到見底，兩側依當地沙量瞬間堆脊（純本地、無採樣拖曳）
+      // 推沙：核心見底、兩側輕微堆脊（柔和漸變）
       float mv=clamp(length(ba)*0.15, 0., 1.);
       float moving=clamp(mv*8.0, 0., 1.);
       float act=str*moving*(0.35+0.65*clamp(mv*3.0,0.,1.));
       float dn=dist/rad;
-      float core=1.0-smoothstep(0.2,0.6,dn);
-      float ring=smoothstep(0.45,0.7,dn)*(1.0-smoothstep(0.8,1.0,dn));
+      float core=1.0-smoothstep(0.15,0.8,dn);
+      float ring=smoothstep(0.5,0.75,dn)*(1.0-smoothstep(0.8,1.0,dn));
       nh *= 1.0 - core*act;          // 一筆見底
-      nh += ring*act*0.55*h;         // 推出的沙立刻堆在兩側
+      nh += ring*act*0.28*h;         // 輕微立體堆疊
     } else if(mode==1){
       float g=hash21(px*0.9+floor(uTime*50.)*13.7);
       float grain=smoothstep(0.35,0.8,g);
@@ -177,7 +182,7 @@ void main(){
   o=vec4(clamp(nh,0.,2.5),0.,0.,1.);
 }`;
 
-/* ---------- 燈箱渲染（高對比透光 + 光暈 + 方向陰影） ---------- */
+/* ---------- 燈箱渲染（高對比透光 + 光暈 + 柔和立體） ---------- */
 const REND_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uHeight;
@@ -204,24 +209,26 @@ void main(){
 
   float presence = smoothstep(0.004,0.05,h);
 
+  // 法線（柔和立體）
   vec2 grad = vec2(hE-hW, hN-hS);
-  vec3 n = normalize(vec3(-grad*70.0, 1.0));
+  vec3 n = normalize(vec3(-grad*50.0, 1.0));
   vec3 L = normalize(vec3(-0.45,0.5,0.62));
   float diff = clamp(dot(n,L), 0., 1.);
 
+  // 方向性遮蔽（柔化）
   vec2 ld = normalize(vec2(-0.55,0.7));
   float s1 = max(0.0, texture(uHeight, uv+ld*tx*2.0).r - h);
   float s2 = max(0.0, texture(uHeight, uv+ld*tx*5.0).r - h);
   float s3 = max(0.0, texture(uHeight, uv+ld*tx*9.0).r - h);
-  float shadow = 1.0 - clamp((s1 + s2*0.7 + s3*0.45)*28.0, 0.0, 0.65);
+  float shadow = 1.0 - clamp((s1 + s2*0.7 + s3*0.45)*18.0, 0.0, 0.5);
 
-  // 高對比透光：見底處接近過曝、沙面壓暗
+  // 高對比透光
   float intensity = 0.05 + 1.35*exp(-uAbsorb*hh);
   vec3 col = uLight * intensity;
   col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);
-  col *= mix(1.0, 0.55+0.85*diff, presence);
+  col *= mix(1.0, 0.7+0.6*diff, presence);
   col *= mix(1.0, shadow, presence);
-  col += uLight * exp(-uAbsorb*hb) * 0.25 * (1.0 - 0.6*presence);  // 光暈滲透
+  col += uLight * exp(-uAbsorb*hb) * 0.25 * (1.0 - 0.6*presence);  // 光暈透
 
   vec2 gp = uv*uSimSize;
   float g = hash21(floor(gp));
@@ -417,9 +424,14 @@ function frame(nowMs){
 /* ---------- UI ---------- */
 const bar=document.getElementById('bar'), showTab=document.getElementById('showTab');
 const hint=document.getElementById('hint');
-let hintHidden=false;
+const toastEl=document.getElementById('toast');
+let hintHidden=false, toastT=null;
 function hideHint(){ if(!hintHidden){hintHidden=true;hint.style.opacity='0';} }
 setTimeout(hideHint,6000);
+function toast(msg){
+  toastEl.textContent=msg; toastEl.style.opacity='1';
+  clearTimeout(toastT); toastT=setTimeout(()=>toastEl.style.opacity='0',3800);
+}
 
 document.querySelectorAll('#bar .tool').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -438,24 +450,31 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   a.click();
 });
 
-/* ---------- 全螢幕 ---------- */
+/* ---------- 全螢幕（iPhone 自動降級為沉浸模式） ---------- */
 const fsBtn=document.getElementById('fsBtn');
 function fsElement(){ return document.fullscreenElement||document.webkitFullscreenElement||null; }
+function zenFallback(){
+  bar.classList.add('hidden'); showTab.classList.add('show');
+  toast('此裝置不支援網頁全螢幕，已隱藏工具列。iPhone 請用「分享 → 加入主畫面」，從主畫面開啟即為全螢幕。');
+}
 fsBtn.addEventListener('click',()=>{
-  if(!fsElement()){
-    const el=document.documentElement;
-    let p=null;
-    if(el.requestFullscreen) p=el.requestFullscreen();
-    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    if(p&&p.catch) p.catch(()=>{});
-  }else{
+  if(fsElement()){
     if(document.exitFullscreen) document.exitFullscreen();
     else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    return;
   }
+  const el=document.documentElement;
+  let p=null;
+  try{
+    if(el.requestFullscreen) p=el.requestFullscreen();
+    else if(el.webkitRequestFullscreen) p=el.webkitRequestFullscreen();
+  }catch(e){}
+  if(p&&p.then) p.catch(()=>zenFallback());
+  setTimeout(()=>{ if(!fsElement()) zenFallback(); },500);
 });
 ['fullscreenchange','webkitfullscreenchange'].forEach(ev=>addEventListener(ev,()=>{
   const on=!!fsElement();
-  fsBtn.innerHTML=(on?'✕':'⛶')+'<span>'+(on?'退出':'全螢幕')+'</span>';
+  fsBtn.innerHTML=(on?'✕':'')+'<span>'+(on?'退出':'全螢幕')+'</span>';
 }));
 
 document.getElementById('hideBtn').addEventListener('click',()=>{bar.classList.add('hidden');showTab.classList.add('show');});
