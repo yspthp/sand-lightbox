@@ -160,17 +160,20 @@ void main(){
 
   vec2 px = uv*uSimSize;
 
-  // 風：定向吹拂（拖尾變形）+ 條紋狀侵蝕（消散）
+  // 風：扭曲為主（定向拖曳+漣漪+條紋差速），幾乎不減少沙量
   float wlen=length(uWind);
   if(wlen>0.001){
     vec2 wdir=uWind/wlen;
     float streak=hash21(floor(px*vec2(0.12,0.45)));
     float gust=hash21(floor(px*0.08)+floor(uTime*6.0)*5.7);
-    vec2 off=wdir*(0.6+1.8*streak)*wlen;
-    off.y+=(gust-0.5)*1.5*wlen;
+    vec2 off=wdir*(0.5+1.3*streak)*wlen;
+    off.y+=(gust-0.5)*1.6*wlen;
+    off.y+=sin(px.x*0.045+uTime*2.5)*0.7*wlen;
     float up=texture(uPrev,(px-off)/uSimSize).r;
-    nh=mix(nh,up,0.45*wlen);
-    nh*=1.0-wlen*0.02*(0.35+0.75*streak);
+    nh=mix(nh,up,0.5*wlen);                    // 風吹拖曳 → 畫面扭曲
+    float avg4=(hN+hS+hE+hW)*0.25;
+    nh=mix(nh,avg4,0.06*wlen);                 // 邊緣柔化
+    nh*=1.0-wlen*0.0015*(0.3+0.7*streak);      // 極少量吹蝕，畫面仍保有沙
   }
 
   // 手指筆刷
@@ -419,7 +422,7 @@ function frame(nowMs){
   const dt=Math.min(0.033, lastT? now-lastT : 0.016); lastT=now;
 
   if(guiding && pointers.size>0) drawnTime+=dt;
-  if(guiding && !drawStart && drawnTime>0.5) drawStart=now;   // 至少 0.5 秒接觸才開始計時
+  if(guiding && !drawStart && drawnTime>0.5) drawStart=now;
 
   const b=new Float32Array(40), bp=new Float32Array(40);
   let n=0;
@@ -498,8 +501,8 @@ function enterFree(){
 function startGuide(){
   fillBoth(); drawnTime=0; drawStart=0; windStart=0;
   guiding=true;
-  bar.classList.add('hidden');
-  showTab.style.display='none';
+  bar.classList.remove('hidden');   // 引導期間也保留完整工具
+  showTab.style.display='';
   skipBtn.style.display='block';
   guide();
 }
@@ -529,7 +532,7 @@ async function guide(){
   await wait(4600); if(!ok())return;
   clearCap(); await wait(700); if(!ok())return;
 
-  windStart=performance.now()/1000;           // 風吹過，畫消散
+  windStart=performance.now()/1000;           // 風吹過，畫面扭曲但仍在
   await wait(CONFIG.WIND_DUR*1000+400); if(!ok())return;
 
   setCap('沙怎麼聚散，\n光卻一直這樣明亮，\n沒有轉變過。');
