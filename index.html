@@ -54,7 +54,6 @@
 <div id="bar">
   <button class="tool on" data-tool="push">✋<span>推沙</span></button>
   <button class="tool" data-tool="pour">⏳<span>灑沙</span></button>
-  <button class="tool" data-tool="smooth">🖐️<span>抹平</span></button>
   <div class="sep"></div>
   <button id="fillBtn">🌘<span>鋪沙</span></button>
   <button id="clearBtn">🗑️<span>清空</span></button>
@@ -78,7 +77,6 @@ const CONFIG = {
   BRUSH_R: 0.05,     // 筆刷半徑（螢幕短邊比例）
   PUSH: 0.9,         // 推沙強度
   POUR: 1.3,         // 灑沙速率
-  SMOOTH: 0.85,      // 抹平強度
   BASE: 0.12,        // 鋪沙的基礎厚度
   BASE_NOISE: 0.02,  // 鋪沙的不均勻度
   ABSORB: 6.0,       // 燈箱吸光係數：越大對比越強
@@ -122,7 +120,7 @@ uniform vec2  uSimSize;
 uniform float uTalus, uFlow, uTime, uDt;
 uniform int   uCount;
 uniform vec4  uBrush[10];      // xy=位置(uv) z=半徑(texel) w=強度
-uniform vec4  uBrushPrev[10];  // xy=上一幀位置 z=模式(0推 1灑 2抹)
+uniform vec4  uBrushPrev[10];  // xy=上一幀位置 z=模式(0推 1灑)
 out vec4 o;
 float hash21(vec2 p){
   vec3 p3=fract(vec3(p.xyx)*0.1031);
@@ -170,13 +168,11 @@ void main(){
       float ring=smoothstep(0.5,0.75,dn)*(1.0-smoothstep(0.8,1.0,dn));
       nh *= 1.0 - core*act;          // 一筆見底
       nh += ring*act*0.28*h;         // 輕微立體堆疊
-    } else if(mode==1){
+    } else {
+      // 灑沙：隨機顆粒堆積
       float g=hash21(px*0.9+floor(uTime*50.)*13.7);
       float grain=smoothstep(0.35,0.8,g);
       nh+=str*fall*grain*uDt;
-    } else {
-      float avg=(hN+hS+hE+hW)*0.25;
-      nh=mix(nh,avg,fall*str*0.85);
     }
   }
   o=vec4(clamp(nh,0.,2.5),0.,0.,1.);
@@ -344,7 +340,7 @@ function resizeCanvas(){
 /* ---------- 多點觸控 ---------- */
 const pointers=new Map();
 let tool='push';
-const TOOL_ID={push:0,pour:1,smooth:2};
+const TOOL_ID={push:0,pour:1};
 function toUV(e){
   const r=canvas.getBoundingClientRect();
   return {u:(e.clientX-r.left)/r.width, v:1-(e.clientY-r.top)/r.height};
@@ -395,7 +391,7 @@ function frame(nowMs){
   let n=0;
   const baseR=CONFIG.BRUSH_R*Math.min(simW,simH);
   const rad = tool==='pour'? baseR*1.3 : baseR;
-  const str = tool==='push'? CONFIG.PUSH : tool==='pour'? CONFIG.POUR : CONFIG.SMOOTH;
+  const str = tool==='push'? CONFIG.PUSH : CONFIG.POUR;
   pointers.forEach(p=>{
     if(n>=10) return;
     b.set([p.u,p.v,rad,str],n*4);
@@ -474,7 +470,7 @@ fsBtn.addEventListener('click',()=>{
 });
 ['fullscreenchange','webkitfullscreenchange'].forEach(ev=>addEventListener(ev,()=>{
   const on=!!fsElement();
-  fsBtn.innerHTML=(on?'✕':'')+'<span>'+(on?'退出':'全螢幕')+'</span>';
+  fsBtn.innerHTML=(on?'✕':'⛶')+'<span>'+(on?'退出':'全螢幕')+'</span>';
 }));
 
 document.getElementById('hideBtn').addEventListener('click',()=>{bar.classList.add('hidden');showTab.classList.add('show');});
