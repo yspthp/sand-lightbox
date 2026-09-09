@@ -21,6 +21,7 @@
   #capBtns{display:flex;gap:12px;pointer-events:auto}
   #capBtns button{background:rgba(20,17,14,.72);color:#ffd9a0;border:1px solid rgba(255,255,255,.12);
        border-radius:18px;padding:10px 24px;font-size:15px;letter-spacing:2px;touch-action:manipulation}
+  #doneBtn{position:fixed;top:14px;left:14px;z-index:11;background:rgba(20,17,14,.72);color:#ffd9a0;border:1px solid rgba(255,210,150,.28);border-radius:16px;padding:8px 16px;font-size:14px;letter-spacing:2px;display:none;touch-action:manipulation}
   #skipBtn{position:fixed;top:max(12px,env(safe-area-inset-top));right:14px;z-index:11;
        background:rgba(20,17,14,.55);color:#cfc6b8;border:1px solid rgba(255,255,255,.1);
        border-radius:14px;padding:6px 14px;font-size:13px;letter-spacing:2px;display:none;
@@ -51,13 +52,42 @@
   #showTab.show{transform:translateX(-50%) translateY(0)}
   #err{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
        color:#e8dcc8;font-size:16px;text-align:center;padding:40px;line-height:1.8}
+#rotateNotice{display:none;position:fixed;inset:0;z-index:1000;background:#17130f;color:#fff4e2;align-items:center;justify-content:center;text-align:center;padding:32px;line-height:1.9}
+#rotateNotice strong{display:block;font-size:26px;margin-bottom:16px}
+#rotateNotice p{max-width:24em;font-size:18px;color:#e3d4c0}
+@media (orientation:portrait){#rotateNotice{display:flex}}
+/* Readable captions: local scrim only; sand and light rendering stay untouched. */
+#capWrap{left:50%;right:auto;transform:translateX(-50%);width:max-content;
+  max-width:calc(100% - 48px);isolation:isolate;gap:16px}
+#capWrap::before{content:"";position:absolute;inset:-12px -18px;z-index:-1;
+  background:rgba(14,11,9,.84);border-radius:28px;filter:blur(12px);pointer-events:none}
+#cap{color:#fff8ed;font-size:clamp(22px,2.5vw,26px);font-weight:500;
+  letter-spacing:1.5px;line-height:1.8;padding:12px 20px;
+  text-shadow:0 1px 3px rgba(0,0,0,.9),0 2px 8px rgba(0,0,0,.55);
+  overflow-wrap:anywhere}
+#cap:empty{display:none}
+#capBtns{flex-wrap:wrap;justify-content:center}
+#capBtns button,#doneBtn,#skipBtn{background:rgba(22,18,14,.94);color:#fff8ed;
+  border:1px solid rgba(255,233,196,.45);font-weight:500;min-height:44px}
+#capBtns button:focus-visible,#doneBtn:focus-visible,#skipBtn:focus-visible{
+  outline:2px solid #fff8ed;outline-offset:4px}
+#doneBtn{top:max(14px,env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left))}
+#skipBtn{right:max(14px,env(safe-area-inset-right))}
+@media (max-height:500px) and (orientation:landscape){
+  #capWrap{top:52px;max-width:calc(100% - 100px);gap:8px}
+  #cap{font-size:22px;line-height:1.55;padding:6px 14px}
+  #capBtns button{padding:8px 18px}
+}
+@media (prefers-reduced-motion:reduce){#capWrap{transition:none}}
 </style>
 </head>
 <body>
+<div id="rotateNotice" role="status" aria-live="polite"><div><strong>請將裝置橫放</strong><p>《沙・光箱》以橫向畫面體驗。<br>直放時會暫停，橫放後即可繼續。<br>你的沙畫會保留。</p></div></div>
 <canvas id="c"></canvas>
 <div id="frame"></div>
 <div id="capWrap"><div id="cap"></div><div id="capBtns"></div></div>
 <button id="skipBtn">跳過</button>
+<button id="doneBtn">完成了</button>
 <div id="toast"></div>
 
 <div id="bar">
@@ -83,7 +113,9 @@ const CONFIG = {
   SIM_MAX: 896,      // 沙層模擬網格的最大邊長
   TALUS: 0.008,      // 安息角：越大沙堆越穩定
   FLOW: 0.08,        // 沙流動的速度（穩定上限 0.25）
-  RELAX_STEPS: 2,    // 每幀鬆弛迭代次數
+  RELAX_STEPS: 3,
+  SETTLE_STEPS: 2,
+  SETTLE_RATE: 0.0,    // 每幀鬆弛迭代次數
   BRUSH_R: 0.05,     // 筆刷半徑（螢幕短邊比例）
   PUSH: 0.9,         // 推沙強度
   POUR: 1.3,         // 灑沙速率
@@ -96,6 +128,15 @@ const CONFIG = {
 };
 /* ============================================ */
 
+let portraitPaused=innerHeight>innerWidth;
+let activeTime=0, clockLast=performance.now();
+function experienceNow(){
+  const now=performance.now();
+  if(!portraitPaused) activeTime+=Math.max(0,now-clockLast);
+  clockLast=now;
+  return activeTime;
+}
+let experienceStarted=false;
 const canvas = document.getElementById('c');
 const errBox = document.getElementById('err');
 function fail(msg){ errBox.style.display='flex'; errBox.textContent=msg; throw new Error(msg); }
@@ -131,7 +172,7 @@ precision highp float;
 uniform sampler2D uPrev;
 uniform vec2  uSimSize;
 uniform vec2  uWind;       // 風向*強度(0..1)
-uniform float uTalus, uFlow, uTime, uDt;
+uniform float uTalus, uFlow, uTime, uDt, uSettleRate;
 uniform int   uCount;
 uniform vec4  uBrush[10];
 uniform vec4  uBrushPrev[10];
@@ -140,6 +181,16 @@ float hash21(vec2 p){
   vec3 p3=fract(vec3(p.xyx)*0.1031);
   p3+=dot(p3,p3.yzx+33.33);
   return fract((p3.x+p3.y)*p3.z);
+}
+float windFlux(vec2 cell){
+  if(any(lessThan(cell,vec2(0.5))) || any(greaterThan(cell,uSimSize-0.5))) return 0.0;
+  float h=texture(uPrev,cell/uSimSize).r;
+  float upstream=texture(uPrev,(cell-vec2(2.,0.))/uSimSize).r;
+  float ridge=smoothstep(0.,0.045,max(0.,h-upstream));
+  float bands=0.45+0.55*pow(0.5+0.5*sin(cell.y*0.075+sin(cell.y*0.021)+uTime*0.6),2.);
+  float gust=0.65+0.35*sin(cell.x*0.023-uTime*2.4+cell.y*0.013);
+  float rate=min(0.18,length(uWind)*uDt*(3.0+ridge*8.0)*bands*gust);
+  return h*rate;
 }
 void main(){
   vec2 uv = gl_FragCoord.xy/uSimSize;
@@ -161,21 +212,24 @@ void main(){
 
   vec2 px = uv*uSimSize;
 
-  // 風：完整平流（沙真實位移）+ 陣風剪切 + 漣漪飄動 + 飛沙
-  float wlen=length(uWind);
-  if(wlen>0.001){
-    vec2 wdir=uWind/wlen;
-    float gust  =hash21(floor(px*0.05)+floor(uTime*3.0)*7.7);   // 低頻陣風
-    float streak=hash21(floor(px*vec2(0.10,0.35)));            // 沿風向條流
-    float speed=(0.3+1.1*streak)*(0.5+0.9*gust);               // 差速 → 剪切扭曲
-    vec2 off=wdir*speed*1.5*wlen;
-    float phase=px.x*0.03+px.y*0.01-uTime*4.0;                 // 行進漣漪
-    off.y+=sin(phase)*(0.4+0.9*streak)*wlen;
-    off.x+=sin(phase*0.7+1.7)*0.4*wlen;
-    nh=texture(uPrev,(px-off)/uSimSize).r;                     // 真實位移，非疊圖
-    float fly=hash21(floor(px)+floor(uTime*30.0)*3.3);
-    nh+=step(0.985,fly)*wlen*0.015;                            // 飛沙顆粒
-    nh*=1.0-wlen*0.0008*(0.3+0.7*streak);                      // 極輕侵蝕
+    // 自然沉降：只在接近安息角的局部區域發生，避免整屏抖動
+  float slope=max(max(h-hN,h-hS),max(h-hE,h-hW));
+  float unstable=smoothstep(uTalus*0.35,uTalus*1.8,slope);
+  float field=hash21(floor(px*0.22)+floor(uTime*0.55)*17.3);
+  float settle=unstable*step(0.72,field)*uSettleRate*uDt;
+  if(settle>0.0){
+    vec2 down=normalize(vec2((hW-hE),(hS-hN))+vec2(0.0001));
+    vec2 src=clamp(uv-down*tx*(0.8+field*2.2),vec2(0.002),vec2(0.998));
+    float incoming=texture(uPrev,src).r;
+    nh=mix(nh,incoming,settle*8.0);
+  }
+
+  // Move a fraction of surface sand rightward; closed edges preserve sand mass.
+  if(length(uWind)>0.001){
+    vec2 hop=vec2(3.0,0.0);
+    float outgoing=px.x+hop.x<=uSimSize.x-0.5 ? windFlux(px) : 0.0;
+    float incoming=windFlux(px-hop);
+    nh=max(0.0,nh+incoming-outgoing);
   }
 
   // 手指筆刷
@@ -298,7 +352,7 @@ uniform sampler2D uSrc; uniform vec2 uDest;
 out vec4 o;
 void main(){ o=vec4(texture(uSrc, gl_FragCoord.xy/uDest).r,0.,0.,1.); }`;
 
-const sp = prog(VS, SIM_FS),  SL = locs(sp, ['uPrev','uSimSize','uWind','uTalus','uFlow','uTime','uDt','uCount','uBrush','uBrushPrev']);
+const sp = prog(VS, SIM_FS),  SL = locs(sp, ['uPrev','uSimSize','uWind','uTalus','uFlow','uTime','uDt','uCount','uBrush','uBrushPrev','uSettleRate']);
 const rp = prog(VS, REND_FS), RL = locs(rp, ['uHeight','uCanvas','uSimSize','uLight','uTime','uAbsorb']);
 const fp = prog(VS, FILL_FS), FL = locs(fp, ['uBase','uAmp','uSeed']);
 const cp = prog(VS, COPY_FS), CL = locs(cp, ['uSrc','uDest']);
@@ -374,6 +428,7 @@ function toUV(e){
 }
 canvas.addEventListener('pointerdown',e=>{
   e.preventDefault();
+  if(portraitPaused || !experienceStarted)return;
   canvas.setPointerCapture(e.pointerId);
   const {u,v}=toUV(e);
   pointers.set(e.pointerId,{u,v,pu:u,pv:v});
@@ -388,13 +443,21 @@ document.addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('gesturestart',e=>e.preventDefault());
 
 /* ---------- 風 ---------- */
-let windStart=0;
+let windStart=0, ambientStart=0, nextGust=0, drawingPhase=false, finishRequested=false;
 function windLevel(now){
-  if(!windStart) return 0;
+  if(!windStart){
+    if(!drawingPhase || !drawStart) return 0;
+    if(!nextGust) nextGust=now+6;
+    if(!ambientStart && now>=nextGust) ambientStart=now;
+    if(!ambientStart) return 0;
+    const t=(now-ambientStart)/4.5;
+    if(t>=1){ ambientStart=0; nextGust=now+5+Math.random()*4; return 0; }
+    return 0.8*Math.sin(Math.PI*Math.max(0,t));
+  }
   const t=(now-windStart)/CONFIG.WIND_DUR;
   if(t>=1){ windStart=0; return 0; }
   if(t<=0) return 0;
-  return Math.sin(Math.PI*t);
+  return 2.0*Math.sin(Math.PI*t);
 }
 
 /* ---------- 主迴圈 ---------- */
@@ -420,11 +483,12 @@ function render(now){
 }
 function frame(nowMs){
   requestAnimationFrame(frame);
-  const now=nowMs/1000;
+  if(portraitPaused || !experienceStarted){lastT=0;return;}
+  const now=experienceNow()/1000;
   const dt=Math.min(0.033, lastT? now-lastT : 0.016); lastT=now;
 
-  if(guiding && pointers.size>0) drawnTime+=dt;
-  if(guiding && !drawStart && drawnTime>0.5) drawStart=now;
+  if(drawingPhase && pointers.size>0) drawnTime+=dt;
+  if(drawingPhase && !drawStart && drawnTime>0.5) drawStart=now;
 
   const b=new Float32Array(40), bp=new Float32Array(40);
   let n=0;
@@ -449,6 +513,7 @@ function frame(nowMs){
   gl.uniform1f(SL.uFlow,CONFIG.FLOW);
   gl.uniform1f(SL.uTime,now);
   gl.uniform1f(SL.uDt,dt);
+  gl.uniform1f(SL.uSettleRate,CONFIG.SETTLE_RATE);
   gl.uniform4fv(SL.uBrush,b);
   gl.uniform4fv(SL.uBrushPrev,bp);
   gl.uniform1i(SL.uCount,n);
@@ -465,6 +530,7 @@ const cap=document.getElementById('cap');
 const capBtns=document.getElementById('capBtns');
 const skipBtn=document.getElementById('skipBtn');
 let guiding=false, gVer=0, drawnTime=0, drawStart=0;
+const doneBtn=document.getElementById("doneBtn");
 
 function setCap(t){ cap.innerHTML=t.replace(/\n/g,'<br>'); capWrap.style.opacity='1'; }
 function clearCap(){ capWrap.style.opacity='0'; }
@@ -477,12 +543,15 @@ function setBtns(list){
     capBtns.appendChild(b);
   }
 }
-const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const wait=ms=>new Promise(resolve=>{
+  const end=experienceNow()+ms;
+  const id=setInterval(()=>{if(!portraitPaused && experienceNow()>=end){clearInterval(id);resolve();}},60);
+});
 function waitUntil(pred, ok){
   return new Promise(res=>{
     const iv=setInterval(()=>{
       if(!ok()){ clearInterval(iv); res(false); }
-      else if(pred()){ clearInterval(iv); res(true); }
+      else if(!portraitPaused && pred()){ clearInterval(iv); res(true); }
     },120);
   });
 }
@@ -492,8 +561,8 @@ function ask(opts){
   });
 }
 function enterFree(){
-  guiding=false; windStart=0;
-  skipBtn.style.display='none';
+  guiding=false; drawingPhase=false; windStart=0; ambientStart=0; nextGust=0;
+  skipBtn.style.display="none"; doneBtn.style.display="none";
   showTab.style.display='';
   clearCap(); setBtns([]);
   bar.classList.remove('hidden');
@@ -501,12 +570,20 @@ function enterFree(){
   setTimeout(()=>{ if(!guiding) clearCap(); },2600);
   toast('可隨時以工具列的 🧭 引導 重新進入引導');
 }
+function finishDrawing(){
+  if(!guiding || !drawingPhase || finishRequested) return;
+  finishRequested=true; drawingPhase=false; ambientStart=0;
+  doneBtn.style.display="none"; setBtns([]);
+  setCap('完成了。\n先看看你留下的畫面。');
+}
+doneBtn.addEventListener("click",finishDrawing);
 function startGuide(){
   fillBoth(); drawnTime=0; drawStart=0; windStart=0;
+  ambientStart=0; nextGust=0; drawingPhase=true; finishRequested=false; setBtns([]);
   guiding=true;
   bar.classList.remove('hidden');   // 引導期間也保留完整工具
   showTab.style.display='';
-  skipBtn.style.display='block';
+  skipBtn.style.display="block"; doneBtn.style.display="none";
   guide();
 }
 skipBtn.addEventListener('click',()=>{ gVer++; enterFree(); });
@@ -517,26 +594,28 @@ async function guide(){
   await wait(900); if(!ok())return;
 
   setCap('用沙，建構一幅\n你最想保留的畫面。');
-  let need=CONFIG.DRAW_TIME;
-  for(;;){
-    const reached=await waitUntil(()=>drawStart>0 && (performance.now()/1000-drawStart)>=need, ok);
-    if(!reached||!ok())return;
-    clearCap(); await wait(700); if(!ok())return;
-    setCap('完成了嗎？\n這是否你珍視、想留住的畫面？');
-    const ans=await ask([['還沒，繼續','more'],['完成了','done']]);
-    if(!ok())return;
-    if(ans==='done') break;
-    clearCap(); await wait(500); if(!ok())return;
-    setCap('慢慢來，不急。');
-    drawnTime=0; drawStart=0; need=CONFIG.DRAW_MORE;
-  }
+  const reached=await waitUntil(()=>drawStart>0 && experienceNow()/1000-drawStart>=CONFIG.DRAW_TIME,ok);
+  if(!reached||!ok())return;
+  setCap('完成了嗎？\n這是否你珍視、想留住的畫面？');
+  const ans=await ask([['還沒，繼續','more'],['完成了','done']]);
+  if(!ok())return;
+  if(ans==='more'){
+    doneBtn.style.display='block';
+    setCap('慢慢來，不急。\n準備好時，按左上角「完成了」。');
+    setTimeout(()=>{if(ok()&&drawingPhase)clearCap();},3500);
+    const finished=await waitUntil(()=>finishRequested,ok);
+    if(!finished||!ok())return;
+  }else finishDrawing();
+  drawingPhase=false; ambientStart=0; nextGust=0;
+  doneBtn.style.display='none';
+  await wait(1400); if(!ok())return;
 
   clearCap(); await wait(800); if(!ok())return;
   setCap('沙是暫存的。\n萬物都有定時，\n我們無法控制它何時轉變。');
   await wait(4600); if(!ok())return;
   clearCap(); await wait(700); if(!ok())return;
 
-  windStart=performance.now()/1000;           // 風吹過：扭曲、拉絲、飄動
+  windStart=experienceNow()/1000;           // 結尾強風：搬運表層沙，而非清空
   await wait(CONFIG.WIND_DUR*1000+400); if(!ok())return;
 
   setCap('沙怎麼聚散，\n光卻一直這樣明亮，\n沒有轉變過。');
@@ -574,7 +653,7 @@ document.querySelectorAll('#bar .tool').forEach(btn=>{
 document.getElementById('fillBtn').addEventListener('click',()=>fillBoth());
 document.getElementById('clearBtn').addEventListener('click',()=>clearAll());
 document.getElementById('saveBtn').addEventListener('click',()=>{
-  render(performance.now()/1000);
+  render(experienceNow()/1000);
   const d=new Date(), pad=x=>String(x).padStart(2,'0');
   const a=document.createElement('a');
   a.download=`sand-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.png`;
@@ -623,16 +702,30 @@ document.getElementById('lightRange').addEventListener('input',updateLight);
 updateLight();
 
 /* ---------- 啟動 ---------- */
-let rsT=null;
-addEventListener('resize',()=>{
-  resizeCanvas();
-  clearTimeout(rsT);
-  rsT=setTimeout(()=>rebuildSim(true),300);
-});
-resizeCanvas();
-rebuildSim(false);
+function updateOrientation(){
+  experienceNow();
+  portraitPaused=innerHeight>innerWidth;
+  pointers.clear();
+  if(portraitPaused)return;
+  if(!experienceStarted){
+    resizeCanvas(); rebuildSim(false); experienceStarted=true; startGuide();
+  }else{
+    // Keep the original simulation and canvas aspect ratio; never resample the artwork.
+    const scale=Math.min(innerWidth/canvas.width,innerHeight/canvas.height);
+    canvas.style.width=(canvas.width*scale)+'px';
+    canvas.style.height=(canvas.height*scale)+'px';
+    canvas.style.left=((innerWidth-canvas.width*scale)/2)+'px';
+    canvas.style.top=((innerHeight-canvas.height*scale)/2)+'px';
+    canvas.style.right='auto';canvas.style.bottom='auto';
+  }
+}
+addEventListener('resize',updateOrientation);
+updateOrientation();
 requestAnimationFrame(frame);
-startGuide();
 </script>
 </body>
 </html>
+
+
+
+
