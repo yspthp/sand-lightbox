@@ -59,11 +59,10 @@
 /* Readable captions: local scrim only; sand and light rendering stay untouched. */
 #capWrap{left:50%;right:auto;transform:translateX(-50%);width:max-content;
   max-width:calc(100% - 48px);isolation:isolate;gap:16px}
-#capWrap::before{content:"";position:absolute;inset:-12px -18px;z-index:-1;
-  background:rgba(14,11,9,.84);border-radius:28px;filter:blur(12px);pointer-events:none}
-#cap{color:#fff8ed;font-size:clamp(22px,2.5vw,26px);font-weight:500;
+#capWrap::before{content:"";position:absolute;inset:-28px -54px;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at center,rgba(12,9,7,.60) 0%,rgba(12,9,7,.30) 42%,transparent 76%);filter:blur(8px)}
+#cap{color:#fff3df;font-size:clamp(22px,2.5vw,26px);font-weight:500;
   letter-spacing:1.5px;line-height:1.8;padding:12px 20px;
-  text-shadow:0 1px 3px rgba(0,0,0,.9),0 2px 8px rgba(0,0,0,.55);
+  text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 14px rgba(0,0,0,.58);transition:filter .6s,opacity 1.2s;
   overflow-wrap:anywhere}
 #cap:empty{display:none}
 #capBtns{flex-wrap:wrap;justify-content:center}
@@ -79,6 +78,9 @@
   #capBtns button{padding:8px 18px}
 }
 @media (prefers-reduced-motion:reduce){#capWrap{transition:none}}
+
+  /* soft atmosphere without a physical frame */
+  #c{filter:saturate(.94) contrast(1.03)}
 </style>
 </head>
 <body>
@@ -309,7 +311,9 @@ void main(){
 
   vec2 gp = uv*uSimSize;
   float g = hash21(floor(gp));
+  float fine = hash21(floor(gp*2.7+vec2(13.1,7.4)));
   col *= 1.0 + (g-0.5)*0.22*presence;
+  col *= 1.0 + (fine-0.5)*0.055*presence;
   float sp = hash21(floor(gp)+floor(uTime*7.0)*7.13);
   float tw = 0.5+0.5*sin(uTime*4.0+sp*60.0);
   col += uLight * step(0.997,sp)*tw*presence*0.8;
@@ -593,7 +597,7 @@ async function guide(){
   const v=++gVer; const ok=()=>v===gVer&&guiding;
   await wait(900); if(!ok())return;
 
-  setCap('用沙，建構一幅\n你最想保留的畫面。');
+  setCap('想起你最珍視的關係、事物。\n用沙，建構那幅圖畫。');
   const reached=await waitUntil(()=>drawStart>0 && experienceNow()/1000-drawStart>=CONFIG.DRAW_TIME,ok);
   if(!reached||!ok())return;
   setCap('完成了嗎？\n這是否你珍視、想留住的畫面？');
@@ -601,7 +605,7 @@ async function guide(){
   if(!ok())return;
   if(ans==='more'){
     doneBtn.style.display='block';
-    setCap('慢慢來，不急。\n準備好時，按左上角「完成了」。');
+    setCap('慢慢來，不急。');
     setTimeout(()=>{if(ok()&&drawingPhase)clearCap();},3500);
     const finished=await waitUntil(()=>finishRequested,ok);
     if(!finished||!ok())return;
@@ -618,7 +622,7 @@ async function guide(){
   windStart=experienceNow()/1000;           // 結尾強風：搬運表層沙，而非清空
   await wait(CONFIG.WIND_DUR*1000+400); if(!ok())return;
 
-  setCap('沙怎麼聚散，\n光卻一直這樣明亮，\n沒有轉變過。');
+  setCap('在你還未留意的時候，\n光就一直在為你亮著；\n風帶走一切之後，\n它仍然亮著。');
   await wait(6500); if(!ok())return;
   clearCap(); await wait(1000); if(!ok())return;
 
@@ -626,7 +630,7 @@ async function guide(){
   await wait(7000); if(!ok())return;          // 留白
   clearCap(); await wait(1300); if(!ok())return;
 
-  setCap('例如，愛？');
+  setCap('就像神，那道永恆的光，\n一直在為你亮著。');
   await wait(5200); if(!ok())return;
   clearCap(); await wait(900); if(!ok())return;
 
