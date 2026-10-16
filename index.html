@@ -5,154 +5,322 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>光箱沙畫 · Sand Lightbox</title>
+<title>沙・光箱 · Sand Lightbox</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{height:100%;overflow:hidden;background:#000}
-  body{font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
-       -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-  #c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
-  #frame{position:fixed;inset:0;pointer-events:none;z-index:2;
-         box-shadow:inset 0 0 90px rgba(0,0,0,.5),inset 0 0 8px rgba(0,0,0,.9)}
-  #capWrap{position:fixed;top:13%;left:0;right:0;z-index:6;display:flex;flex-direction:column;
-       align-items:center;gap:20px;pointer-events:none;opacity:0;transition:opacity 1.2s}
-  #cap{color:rgba(255,240,210,.95);font-size:20px;letter-spacing:4px;line-height:2.1;
-       text-align:center;text-shadow:0 1px 12px rgba(0,0,0,.75);padding:0 24px}
-  #capBtns{display:flex;gap:12px;pointer-events:auto}
-  #capBtns button{background:rgba(20,17,14,.72);color:#ffd9a0;border:1px solid rgba(255,255,255,.12);
-       border-radius:18px;padding:10px 24px;font-size:15px;letter-spacing:2px;touch-action:manipulation}
-  #doneBtn{position:fixed;top:14px;left:14px;z-index:11;background:rgba(20,17,14,.72);color:#ffd9a0;border:1px solid rgba(255,210,150,.28);border-radius:16px;padding:8px 16px;font-size:14px;letter-spacing:2px;display:none;touch-action:manipulation}
-  #skipBtn{position:fixed;top:max(12px,env(safe-area-inset-top));right:14px;z-index:11;
-       background:rgba(20,17,14,.55);color:#cfc6b8;border:1px solid rgba(255,255,255,.1);
-       border-radius:14px;padding:6px 14px;font-size:13px;letter-spacing:2px;display:none;
-       touch-action:manipulation}
-  #toast{position:fixed;top:10%;left:50%;transform:translateX(-50%);z-index:30;
-        background:rgba(20,17,14,.88);color:#ffd9a0;padding:10px 20px;border-radius:14px;
-        font-size:14px;letter-spacing:1px;opacity:0;transition:opacity .4s;
-        pointer-events:none;max-width:82%;text-align:center;line-height:1.7}
-  #bar{position:fixed;left:50%;bottom:max(14px,env(safe-area-inset-bottom));z-index:10;
-       transform:translateX(-50%);display:flex;align-items:center;gap:4px;
-       background:rgba(20,17,14,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-       padding:8px 10px;border-radius:22px;border:1px solid rgba(255,255,255,.09);
-       transition:transform .35s,opacity .35s}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000}
+  body{
+    font-family:-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  }
+
+  /* 3. 修復 Fullscreen 比例變形：使用滿版視窗與 object-fit: cover */
+  #c{
+    position:fixed;
+    inset:0;
+    width:100vw;
+    height:100vh;
+    width:100dvw;
+    height:100dvh;
+    display:block;
+    object-fit:cover;
+    touch-action:none;
+    filter:saturate(.94) contrast(1.03);
+    transition:filter .6s ease;
+  }
+  #c.wind-active{
+    filter:saturate(.90) contrast(1.01) blur(0.4px);
+  }
+
+  #frame{
+    position:fixed;inset:0;pointer-events:none;z-index:2;
+    box-shadow:inset 0 0 90px rgba(0,0,0,.5),inset 0 0 8px rgba(0,0,0,.9);
+  }
+
+  /* 敘事字幕容器 */
+  #capWrap{
+    position:fixed;
+    top:13%;
+    left:50%;
+    right:auto;
+    transform:translateX(-50%);
+    z-index:6;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:16px;
+    width:max-content;
+    max-width:calc(100% - 48px);
+    isolation:isolate;
+    pointer-events:none;
+    opacity:0;
+    transition:opacity 1.2s ease;
+  }
+  #capWrap::before{
+    content:"";
+    position:absolute;
+    inset:-28px -54px;
+    z-index:-1;
+    pointer-events:none;
+    background:radial-gradient(ellipse at center,rgba(12,9,7,.64) 0%,rgba(12,9,7,.32) 45%,transparent 78%);
+    filter:blur(8px);
+  }
+  #cap{
+    color:#fff3df;
+    font-size:clamp(20px,2.4vw,26px);
+    font-weight:500;
+    letter-spacing:1.5px;
+    line-height:1.85;
+    padding:12px 22px;
+    text-align:center;
+    text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 14px rgba(0,0,0,.62);
+    transition:filter .6s ease,opacity 1.2s ease;
+    overflow-wrap:anywhere;
+  }
+  #cap:empty{display:none}
+
+  /* 階段五：明確的結束並重置按鈕（取代原本的「跳過」、「完成了」與「儲存」） */
+  #resetBtn{
+    position:fixed;
+    top:max(14px,env(safe-area-inset-top));
+    right:max(16px,env(safe-area-inset-right));
+    z-index:12;
+    background:rgba(22,18,14,.92);
+    color:#fff8ed;
+    border:1px solid rgba(255,220,170,.45);
+    border-radius:18px;
+    padding:10px 18px;
+    min-height:44px;
+    font-size:14px;
+    font-weight:500;
+    letter-spacing:1.5px;
+    box-shadow:0 4px 18px rgba(0,0,0,.45);
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    cursor:pointer;
+    touch-action:manipulation;
+    opacity:0;
+    visibility:hidden;
+    transform:translateY(-6px);
+    transition:opacity .6s ease,transform .6s ease,visibility .6s ease,background .25s ease;
+  }
+  #resetBtn.show{
+    opacity:1;
+    visibility:visible;
+    transform:translateY(0);
+  }
+  #resetBtn:active{
+    background:rgba(255,190,110,.28);
+  }
+  #resetBtn:focus-visible{
+    outline:2px solid #fff8ed;
+    outline-offset:4px;
+  }
+
+  #toast{
+    position:fixed;top:10%;left:50%;transform:translateX(-50%);z-index:30;
+    background:rgba(20,17,14,.88);color:#ffd9a0;padding:10px 20px;border-radius:14px;
+    font-size:14px;letter-spacing:1px;opacity:0;transition:opacity .4s;
+    pointer-events:none;max-width:82%;text-align:center;line-height:1.7;
+  }
+
+  /* 底部工具列（已徹底移除 📷儲存 按鈕） */
+  #bar{
+    position:fixed;left:50%;bottom:max(14px,env(safe-area-inset-bottom));z-index:10;
+    transform:translateX(-50%);display:flex;align-items:center;gap:4px;
+    background:rgba(20,17,14,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    padding:8px 10px;border-radius:22px;border:1px solid rgba(255,255,255,.09);
+    transition:transform .35s,opacity .35s;
+  }
   #bar.hidden{transform:translateX(-50%) translateY(calc(100% + 40px));opacity:0;pointer-events:none}
-  #bar button{min-width:54px;padding:6px 6px;border-radius:14px;background:transparent;border:none;
-       color:#cfc6b8;font-size:22px;display:flex;flex-direction:column;align-items:center;gap:2px;
-       touch-action:manipulation}
+  #bar button{
+    min-width:54px;padding:6px 6px;border-radius:14px;background:transparent;border:none;
+    color:#cfc6b8;font-size:22px;display:flex;flex-direction:column;align-items:center;gap:2px;
+    cursor:pointer;touch-action:manipulation;
+  }
   #bar button span{font-size:11px;letter-spacing:2px}
   #bar button.on{background:rgba(255,190,110,.22);color:#ffd9a0}
   .sep{width:1px;height:40px;background:rgba(255,255,255,.12);margin:0 4px}
   .lightWrap{display:flex;flex-direction:column;align-items:center;gap:2px;color:#cfc6b8;font-size:15px}
   .lightWrap span{font-size:11px;letter-spacing:2px}
   #lightRange{width:100px;accent-color:#ffbf78}
-  #showTab{position:fixed;left:50%;bottom:10px;transform:translateX(-50%) translateY(80px);z-index:10;
-       background:rgba(20,17,14,.78);color:#ffd9a0;border:1px solid rgba(255,255,255,.09);
-       border-radius:16px;padding:8px 18px;font-size:14px;letter-spacing:2px;
-       transition:transform .35s;touch-action:manipulation}
+  #showTab{
+    position:fixed;left:50%;bottom:10px;transform:translateX(-50%) translateY(80px);z-index:10;
+    background:rgba(20,17,14,.78);color:#ffd9a0;border:1px solid rgba(255,255,255,.09);
+    border-radius:16px;padding:8px 18px;font-size:14px;letter-spacing:2px;
+    transition:transform .35s;cursor:pointer;touch-action:manipulation;
+  }
   #showTab.show{transform:translateX(-50%) translateY(0)}
-  #err{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
-       color:#e8dcc8;font-size:16px;text-align:center;padding:40px;line-height:1.8}
-#rotateNotice{display:none;position:fixed;inset:0;z-index:1000;background:#17130f;color:#fff4e2;align-items:center;justify-content:center;text-align:center;padding:32px;line-height:1.9}
-#rotateNotice strong{display:block;font-size:26px;margin-bottom:16px}
-#rotateNotice p{max-width:24em;font-size:18px;color:#e3d4c0}
-@media (orientation:portrait){#rotateNotice{display:flex}}
-/* Readable captions: local scrim only; sand and light rendering stay untouched. */
-#capWrap{left:50%;right:auto;transform:translateX(-50%);width:max-content;
-  max-width:calc(100% - 48px);isolation:isolate;gap:16px}
-#capWrap::before{content:"";position:absolute;inset:-28px -54px;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at center,rgba(12,9,7,.60) 0%,rgba(12,9,7,.30) 42%,transparent 76%);filter:blur(8px)}
-#cap{color:#fff3df;font-size:clamp(22px,2.5vw,26px);font-weight:500;
-  letter-spacing:1.5px;line-height:1.8;padding:12px 20px;
-  text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 14px rgba(0,0,0,.58);transition:filter .6s,opacity 1.2s;
-  overflow-wrap:anywhere}
-#cap:empty{display:none}
-#capBtns{flex-wrap:wrap;justify-content:center}
-#capBtns button,#doneBtn,#skipBtn{background:rgba(22,18,14,.94);color:#fff8ed;
-  border:1px solid rgba(255,233,196,.45);font-weight:500;min-height:44px}
-#capBtns button:focus-visible,#doneBtn:focus-visible,#skipBtn:focus-visible{
-  outline:2px solid #fff8ed;outline-offset:4px}
-#doneBtn{top:max(14px,env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left))}
-#skipBtn{right:max(14px,env(safe-area-inset-right))}
-@media (max-height:500px) and (orientation:landscape){
-  #capWrap{top:52px;max-width:calc(100% - 100px);gap:8px}
-  #cap{font-size:22px;line-height:1.55;padding:6px 14px}
-  #capBtns button{padding:8px 18px}
-}
-@media (prefers-reduced-motion:reduce){#capWrap{transition:none}}
+  #err{
+    position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
+    color:#e8dcc8;font-size:16px;text-align:center;padding:40px;line-height:1.8;
+  }
 
-  /* soft atmosphere without a physical frame */
-  #c{filter:saturate(.94) contrast(1.03)}
+  /* 4. 優化橫放提示遮罩：支援平滑淡入淡出 */
+  #rotateNotice{
+    position:fixed;
+    inset:0;
+    z-index:1000;
+    background:#17130f;
+    color:#fff4e2;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:32px;
+    line-height:1.9;
+    opacity:0;
+    visibility:hidden;
+    pointer-events:none;
+    transition:opacity .45s ease,visibility .45s ease;
+  }
+  #rotateNotice.show{
+    opacity:1;
+    visibility:visible;
+    pointer-events:auto;
+  }
+  #rotateNotice strong{display:block;font-size:26px;margin-bottom:16px}
+  #rotateNotice p{max-width:24em;font-size:18px;color:#e3d4c0}
+
+  @media (max-height:500px) and (orientation:landscape){
+    #capWrap{top:52px;max-width:calc(100% - 100px);gap:8px}
+    #cap{font-size:20px;line-height:1.55;padding:6px 14px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    #capWrap,#rotateNotice,#resetBtn{transition:none}
+  }
 </style>
 </head>
 <body>
-<div id="rotateNotice" role="status" aria-live="polite"><div><strong>請將裝置橫放</strong><p>《沙・光箱》以橫向畫面體驗。<br>直放時會暫停，橫放後即可繼續。<br>你的沙畫會保留。</p></div></div>
+<div id="rotateNotice" role="status" aria-live="polite">
+  <div>
+    <strong>請將裝置橫放</strong>
+    <p>《沙・光箱》以橫向畫面體驗。<br>直放時會暫停，橫放後即可繼續。<br>你的沙畫會保留。</p>
+  </div>
+</div>
+
 <canvas id="c"></canvas>
 <div id="frame"></div>
-<div id="capWrap"><div id="cap"></div><div id="capBtns"></div></div>
-<button id="skipBtn">跳過</button>
-<button id="doneBtn">完成了</button>
+<div id="capWrap"><div id="cap"></div></div>
+<button id="resetBtn" type="button">🔄 結束並重置 (給下一位)</button>
 <div id="toast"></div>
 
 <div id="bar">
-  <button class="tool on" data-tool="push">✋<span>推沙</span></button>
-  <button class="tool" data-tool="pour">⏳<span>灑沙</span></button>
+  <button class="tool on" data-tool="push" type="button">✋<span>推沙</span></button>
+  <button class="tool" data-tool="pour" type="button">⏳<span>灑沙</span></button>
   <div class="sep"></div>
-  <button id="guideBtn">🧭<span>引導</span></button>
-  <button id="fillBtn">🌘<span>鋪沙</span></button>
-  <button id="clearBtn">🗑️<span>清空</span></button>
-  <button id="saveBtn">📷<span>儲存</span></button>
-  <button id="fsBtn">⛶<span>全螢幕</span></button>
+  <button id="fillBtn" type="button">🌘<span>鋪沙</span></button>
+  <button id="clearBtn" type="button">🗑️<span>清空</span></button>
+  <button id="fsBtn" type="button">⛶<span>全螢幕</span></button>
   <div class="sep"></div>
   <div class="lightWrap">💡<input id="lightRange" type="range" min="0" max="100" value="30"><span>燈光</span></div>
-  <button id="hideBtn">▾<span>收起</span></button>
+  <button id="hideBtn" type="button">▾<span>收起</span></button>
 </div>
-<button id="showTab">🛠️ 工具</button>
+<button id="showTab" type="button">🛠️ 工具</button>
 <div id="err"></div>
 
 <script>
 "use strict";
 /* ================= 可調參數 ================= */
 const CONFIG = {
-  SIM_MAX: 896,      // 沙層模擬網格的最大邊長
-  TALUS: 0.008,      // 安息角：越大沙堆越穩定
-  FLOW: 0.08,        // 沙流動的速度（穩定上限 0.25）
-  RELAX_STEPS: 3,
-  SETTLE_STEPS: 2,
-  SETTLE_RATE: 0.0,    // 每幀鬆弛迭代次數
-  BRUSH_R: 0.05,     // 筆刷半徑（螢幕短邊比例）
-  PUSH: 0.9,         // 推沙強度
-  POUR: 1.3,         // 灑沙速率
-  BASE: 0.12,        // 鋪沙的基礎厚度
-  BASE_NOISE: 0.02,  // 鋪沙的不均勻度
-  ABSORB: 6.0,       // 燈箱吸光係數：越大對比越強
-  WIND_DUR: 6.0,     // 風的持續秒數
-  DRAW_TIME: 25,     // 引導：開始作畫後給多少秒（第一輪）
-  DRAW_MORE: 12,     // 引導：選「還沒」後再給多少秒
+  SIM_MAX: 896,             // 沙層模擬網格的最大邊長
+  TALUS: 0.008,             // 安息角：越大沙堆越穩定
+  FLOW: 0.08,               // 沙流動的速度（穩定上限 0.25）
+  RELAX_STEPS: 3,           // 每幀鬆弛迭代次數
+  SETTLE_RATE: 0.0,         // 自然沉降速率
+  BRUSH_R: 0.05,            // 筆刷半徑（螢幕短邊比例）
+  PUSH: 0.9,                // 推沙強度
+  POUR: 1.3,                // 灑沙速率
+  BASE: 0.12,               // 鋪沙的基礎厚度
+  BASE_NOISE: 0.02,         // 鋪沙的不均勻度
+  ABSORB: 6.0,              // 燈箱吸光係數：越大對比越強
+  WIND_DUR: 5.5,            // 單次微風持續秒數
+  INTERACT_WIND_SEC: 15.0,  // 連續互動超過 15 秒觸發微風吹散
+  STAGE3_PUSH_NEED: 1.1     // 階段三引導撥開沙層所需累積秒數
 };
-/* ============================================ */
 
-let portraitPaused=innerHeight>innerWidth;
-let activeTime=0, clockLast=performance.now();
-function experienceNow(){
-  const now=performance.now();
-  if(!portraitPaused) activeTime+=Math.max(0,now-clockLast);
-  clockLast=now;
-  return activeTime;
-}
-let experienceStarted=false;
+/* ================= 五階段互動敘事與精確文案 ================= */
+const STAGE = {
+  STAGE_1: 1, // 階段一：珍視與建構 (沙的凝聚)
+  STAGE_2: 2, // 階段二：脆弱與消散 (沙的不可控)
+  STAGE_3: 3, // 階段三：發現與恆常 (推沙見光)
+  STAGE_4: 4, // 階段四：立意昇華 (神永恆的光)
+  STAGE_5: 5  // 階段五：自由發揮與重置 (結束流程)
+};
+
+const TEXTS = {
+  STAGE_1_INIT: '請在心中想起那些你重視的人、事、物。',
+  STAGE_1_DRAW: '試著用沙，將它們描繪或寫出來……',
+  STAGE_2_WIND: '我們緊緊抓著、努力守護的，終究如沙般脆弱，總是不由自主地消散……',
+  STAGE_3_PROMPT: '請輕輕撥開沙層，看看底下。',
+  STAGE_3_LIGHT: '無論沙如何聚散，底下的光，一直都在，從未改變。',
+  STAGE_4_GOD_1: '沙會散去，但神，也就是那道永恆的光卻從不離開。',
+  STAGE_4_GOD_2: '在神的眼中，你就是這道光所照耀的珍貴存在。',
+  STAGE_5_FREE: '現在，請在光中自由創作。體驗結束後，請為下一位朋友重置。',
+  RESET_BTN: '🔄 結束並重置 (給下一位)'
+};
+/* ============================================================ */
+
 const canvas = document.getElementById('c');
 const errBox = document.getElementById('err');
-function fail(msg){ errBox.style.display='flex'; errBox.textContent=msg; throw new Error(msg); }
+const rotateNotice = document.getElementById('rotateNotice');
+const capWrap = document.getElementById('capWrap');
+const cap = document.getElementById('cap');
+const resetBtn = document.getElementById('resetBtn');
+const bar = document.getElementById('bar');
+const showTab = document.getElementById('showTab');
+const toastEl = document.getElementById('toast');
 
-const gl = canvas.getContext('webgl2', {alpha:false, antialias:false, depth:false, stencil:false, powerPreference:'high-performance'});
+resetBtn.textContent = TEXTS.RESET_BTN;
+
+function fail(msg){
+  errBox.style.display = 'flex';
+  errBox.textContent = msg;
+  throw new Error(msg);
+}
+
+/* ---------- 裝置橫向偵測與計時器 ---------- */
+function isLandscapeScreen(){
+  if(window.screen && window.screen.orientation && typeof window.screen.orientation.type === 'string'){
+    if(window.screen.orientation.type.startsWith('landscape')) return true;
+    if(window.screen.orientation.type.startsWith('portrait')) return false;
+  }
+  if(window.matchMedia){
+    const mq = window.matchMedia('(orientation: landscape)');
+    if(typeof mq.matches === 'boolean') return mq.matches;
+  }
+  return window.innerWidth >= window.innerHeight;
+}
+
+let portraitPaused = !isLandscapeScreen();
+let activeTime = 0;
+let clockLast = performance.now();
+function experienceNow(){
+  const now = performance.now();
+  if(!portraitPaused) activeTime += Math.max(0, now - clockLast);
+  clockLast = now;
+  return activeTime;
+}
+let experienceStarted = false;
+
+/* ---------- WebGL2 初始化 ---------- */
+const gl = canvas.getContext('webgl2', {
+  alpha: false,
+  antialias: false,
+  depth: false,
+  stencil: false,
+  powerPreference: 'high-performance'
+});
 if(!gl) fail('此瀏覽器不支援 WebGL2。請將 iPad 更新到 iPadOS 15 以上，或使用 Safari。');
 const useFloat = !!gl.getExtension('EXT_color_buffer_float');
 
-const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
 
-/* ---------- shader 編譯 ---------- */
 function sh(type, src){
   const s = gl.createShader(type);
-  gl.shaderSource(s, src); gl.compileShader(s);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
   if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) fail('Shader 錯誤: ' + gl.getShaderInfoLog(s));
   return s;
 }
@@ -164,16 +332,20 @@ function prog(vsSrc, fsSrc){
   if(!gl.getProgramParameter(p, gl.LINK_STATUS)) fail('Link 錯誤: ' + gl.getProgramInfoLog(p));
   return p;
 }
-function locs(p, names){ const o={}; names.forEach(n=>o[n]=gl.getUniformLocation(p,n)); return o; }
+function locs(p, names){
+  const o = {};
+  names.forEach(n => o[n] = gl.getUniformLocation(p, n));
+  return o;
+}
 
 const VS = "#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.,1.);}";
 
-/* ---------- 沙層模擬（高度場 + 安息角 + 線段筆刷 + 風） ---------- */
+/* ---------- 沙層模擬 Shader（高度場 + 安息角 + 線段筆刷 + 微風模糊/消散） ---------- */
 const SIM_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uPrev;
 uniform vec2  uSimSize;
-uniform vec2  uWind;       // 風向*強度(0..1)
+uniform vec2  uWind;       // 風向*強度
 uniform float uTalus, uFlow, uTime, uDt, uSettleRate;
 uniform int   uCount;
 uniform vec4  uBrush[10];
@@ -191,7 +363,7 @@ float windFlux(vec2 cell){
   float ridge=smoothstep(0.,0.045,max(0.,h-upstream));
   float bands=0.45+0.55*pow(0.5+0.5*sin(cell.y*0.075+sin(cell.y*0.021)+uTime*0.6),2.);
   float gust=0.65+0.35*sin(cell.x*0.023-uTime*2.4+cell.y*0.013);
-  float rate=min(0.18,length(uWind)*uDt*(3.0+ridge*8.0)*bands*gust);
+  float rate=min(0.22,length(uWind)*uDt*(3.2+ridge*8.5)*bands*gust);
   return h*rate;
 }
 void main(){
@@ -214,7 +386,7 @@ void main(){
 
   vec2 px = uv*uSimSize;
 
-    // 自然沉降：只在接近安息角的局部區域發生，避免整屏抖動
+  // 自然沉降
   float slope=max(max(h-hN,h-hS),max(h-hE,h-hW));
   float unstable=smoothstep(uTalus*0.35,uTalus*1.8,slope);
   float field=hash21(floor(px*0.22)+floor(uTime*0.55)*17.3);
@@ -226,12 +398,22 @@ void main(){
     nh=mix(nh,incoming,settle*8.0);
   }
 
-  // Move a fraction of surface sand rightward; closed edges preserve sand mass.
-  if(length(uWind)>0.001){
+  // 風吹散與模糊效果：結合粒子平流位移、方向性擴散模糊與細沙散開
+  float wlen = length(uWind);
+  if(wlen>0.001){
     vec2 hop=vec2(3.0,0.0);
     float outgoing=px.x+hop.x<=uSimSize.x-0.5 ? windFlux(px) : 0.0;
     float incoming=windFlux(px-hop);
     nh=max(0.0,nh+incoming-outgoing);
+
+    vec2 wdir = uWind / wlen;
+    float streak = hash21(floor(px*vec2(0.10,0.35)));
+    float gust = hash21(floor(px*0.06)+floor(uTime*4.0)*6.1);
+    vec2 drift = wdir*(0.45+1.15*streak)*wlen + vec2(0.0, sin(px.x*0.035+uTime*3.2)*(0.35+0.65*gust)*wlen);
+    float adv = texture(uPrev, clamp((px-drift)/uSimSize, vec2(0.002), vec2(0.998))).r;
+    float avg4 = (hN+hS+hE+hW)*0.25;
+    nh = mix(nh, adv, min(0.32, 0.16*wlen));
+    nh = mix(nh, avg4, min(0.28, 0.12*wlen)); // 讓沙畫邊緣產生柔和模糊與散開感
   }
 
   // 手指筆刷
@@ -264,21 +446,35 @@ void main(){
   o=vec4(clamp(nh,0.,2.5),0.,0.,1.);
 }`;
 
-/* ---------- 燈箱渲染 ---------- */
+/* ---------- 燈箱渲染 Shader（修正寬高比與階段三/四透光增強） ---------- */
 const REND_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uHeight;
 uniform vec2  uCanvas, uSimSize;
 uniform vec3  uLight;
-uniform float uTime, uAbsorb;
+uniform float uTime, uAbsorb, uLightBoost;
 out vec4 o;
 float hash21(vec2 p){
   vec3 p3=fract(vec3(p.xyx)*0.1031);
   p3+=dot(p3,p3.yzx+33.33);
   return fract((p3.x+p3.y)*p3.z);
 }
+// 保持與模擬網格一致的寬高比，避免全螢幕切換瞬間拉伸變扁
+vec2 aspectCoverUV(vec2 fragCoord, vec2 canvasSize, vec2 simSize){
+  float cAsp = canvasSize.x / max(1.0, canvasSize.y);
+  float sAsp = simSize.x / max(1.0, simSize.y);
+  vec2 uv = fragCoord / canvasSize;
+  if(abs(cAsp - sAsp) < 0.005) return uv;
+  vec2 centered = uv - 0.5;
+  if(cAsp > sAsp){
+    centered.y *= sAsp / cAsp;
+  } else {
+    centered.x *= cAsp / sAsp;
+  }
+  return clamp(centered + 0.5, vec2(0.001), vec2(0.999));
+}
 void main(){
-  vec2 uv = gl_FragCoord.xy/uCanvas;
+  vec2 uv = aspectCoverUV(gl_FragCoord.xy, uCanvas, uSimSize);
   vec2 tx = 1.0/uSimSize;
   float h  = texture(uHeight, uv).r;
   float hE = texture(uHeight, uv+vec2(tx.x,0.)).r;
@@ -302,12 +498,13 @@ void main(){
   float s3 = max(0.0, texture(uHeight, uv+ld*tx*9.0).r - h);
   float shadow = 1.0 - clamp((s1 + s2*0.7 + s3*0.45)*18.0, 0.0, 0.5);
 
-  float intensity = 0.05 + 1.35*exp(-uAbsorb*hh);
+  float effAbsorb = uAbsorb * (1.0 - 0.14 * uLightBoost);
+  float intensity = (0.05 + 0.04 * uLightBoost) + (1.35 + 0.22 * uLightBoost) * exp(-effAbsorb * hh);
   vec3 col = uLight * intensity;
   col *= mix(vec3(1.0), vec3(0.86,0.78,0.66), presence*0.85);
   col *= mix(1.0, 0.7+0.6*diff, presence);
   col *= mix(1.0, shadow, presence);
-  col += uLight * exp(-uAbsorb*hb) * 0.25 * (1.0 - 0.6*presence);
+  col += uLight * exp(-effAbsorb*hb) * (0.25 + 0.12 * uLightBoost) * (1.0 - 0.6*presence);
 
   vec2 gp = uv*uSimSize;
   float g = hash21(floor(gp));
@@ -320,12 +517,12 @@ void main(){
 
   col *= 0.94 + 0.06*sin(uv.x*3.7+1.0)*sin(uv.y*2.9+2.0);
   float d = distance(uv, vec2(0.5));
-  col *= 1.0 - 0.32*smoothstep(0.45,0.85,d);
+  col *= 1.0 - (0.32 - 0.08 * uLightBoost)*smoothstep(0.45,0.85,d);
   col = pow(col, vec3(0.9));
   o = vec4(col,1.0);
 }`;
 
-/* ---------- 鋪沙 ---------- */
+/* ---------- 鋪沙 Shader ---------- */
 const FILL_FS = `#version 300 es
 precision highp float;
 uniform float uBase,uAmp,uSeed;
@@ -350,386 +547,627 @@ void main(){
   o=vec4(max(h,0.0),0.,0.,1.);
 }`;
 
+/* ---------- 等比例複製 Shader（Resize / Fullscreen 時不變形） ---------- */
 const COPY_FS = `#version 300 es
 precision highp float;
-uniform sampler2D uSrc; uniform vec2 uDest;
+uniform sampler2D uSrc;
+uniform vec2 uSrcSize;
+uniform vec2 uDest;
 out vec4 o;
-void main(){ o=vec4(texture(uSrc, gl_FragCoord.xy/uDest).r,0.,0.,1.); }`;
+void main(){
+  vec2 uv = gl_FragCoord.xy / uDest;
+  float dAsp = uDest.x / max(1.0, uDest.y);
+  float sAsp = uSrcSize.x / max(1.0, uSrcSize.y);
+  vec2 centered = uv - 0.5;
+  if(dAsp > sAsp){
+    centered.y *= sAsp / dAsp;
+  } else {
+    centered.x *= dAsp / sAsp;
+  }
+  vec2 sampleUV = clamp(centered + 0.5, vec2(0.001), vec2(0.999));
+  o = vec4(texture(uSrc, sampleUV).r, 0., 0., 1.);
+}`;
 
 const sp = prog(VS, SIM_FS),  SL = locs(sp, ['uPrev','uSimSize','uWind','uTalus','uFlow','uTime','uDt','uCount','uBrush','uBrushPrev','uSettleRate']);
-const rp = prog(VS, REND_FS), RL = locs(rp, ['uHeight','uCanvas','uSimSize','uLight','uTime','uAbsorb']);
+const rp = prog(VS, REND_FS), RL = locs(rp, ['uHeight','uCanvas','uSimSize','uLight','uTime','uAbsorb','uLightBoost']);
 const fp = prog(VS, FILL_FS), FL = locs(fp, ['uBase','uAmp','uSeed']);
-const cp = prog(VS, COPY_FS), CL = locs(cp, ['uSrc','uDest']);
+const cp = prog(VS, COPY_FS), CL = locs(cp, ['uSrc','uSrcSize','uDest']);
 
-/* ---------- 紋理 / 幀緩衝 ---------- */
-let simW=0, simH=0, tex=null, ri=0;
+/* ---------- 紋理 / 幀緩衝與 Resize 處理 ---------- */
+let simW = 0, simH = 0, tex = null, ri = 0;
+
 function makeTarget(){
-  const t=gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D,t);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  if(useFloat) gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,simW,simH,0,gl.RGBA,gl.HALF_FLOAT,null);
-  else         gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,simW,simH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
-  const f=gl.createFramebuffer();
-  gl.bindFramebuffer(gl.FRAMEBUFFER,f);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
-  if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE) fail('Framebuffer 不完整');
-  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-  return {tex:t, fbo:f};
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if(useFloat) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, simW, simH, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, simW, simH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  if(gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) fail('Framebuffer 不完整');
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return {tex: t, fbo: f, w: simW, h: simH};
 }
+
 function fillTarget(tgt, seed){
-  gl.bindFramebuffer(gl.FRAMEBUFFER,tgt.fbo);
-  gl.viewport(0,0,simW,simH);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, tgt.fbo);
+  gl.viewport(0, 0, simW, simH);
   gl.useProgram(fp);
-  gl.uniform1f(FL.uBase,CONFIG.BASE); gl.uniform1f(FL.uAmp,CONFIG.BASE_NOISE); gl.uniform1f(FL.uSeed,seed);
-  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.uniform1f(FL.uBase, CONFIG.BASE);
+  gl.uniform1f(FL.uAmp, CONFIG.BASE_NOISE);
+  gl.uniform1f(FL.uSeed, seed);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
-function copyInto(src,dst){
-  gl.bindFramebuffer(gl.FRAMEBUFFER,dst.fbo);
-  gl.viewport(0,0,simW,simH);
+
+function copyInto(src, dst){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+  gl.viewport(0, 0, simW, simH);
   gl.useProgram(cp);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,src.tex);
-  gl.uniform1i(CL.uSrc,0); gl.uniform2f(CL.uDest,simW,simH);
-  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, src.tex);
+  gl.uniform1i(CL.uSrc, 0);
+  gl.uniform2f(CL.uSrcSize, src.w || simW, src.h || simH);
+  gl.uniform2f(CL.uDest, simW, simH);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
-function fillBoth(){ fillTarget(tex[0],1.0); fillTarget(tex[1],1.0); }
+
+function fillBoth(seed = 1.0){
+  if(!tex) return;
+  fillTarget(tex[0], seed);
+  fillTarget(tex[1], seed);
+}
+
 function clearAll(){
+  if(!tex) return;
   for(const t of tex){
-    gl.bindFramebuffer(gl.FRAMEBUFFER,t.fbo);
-    gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
   }
 }
+
 function initSimSize(){
-  const aspect = innerWidth/Math.max(1,innerHeight);
-  if(aspect>=1){ simW=CONFIG.SIM_MAX; simH=Math.max(64,Math.round(CONFIG.SIM_MAX/aspect)); }
-  else{ simH=CONFIG.SIM_MAX; simW=Math.max(64,Math.round(CONFIG.SIM_MAX*aspect)); }
+  const vw = Math.max(1, window.innerWidth);
+  const vh = Math.max(1, window.innerHeight);
+  const aspect = vw / vh;
+  if(aspect >= 1){
+    simW = CONFIG.SIM_MAX;
+    simH = Math.max(64, Math.round(CONFIG.SIM_MAX / aspect));
+  } else {
+    simH = CONFIG.SIM_MAX;
+    simW = Math.max(64, Math.round(CONFIG.SIM_MAX * aspect));
+  }
 }
+
 function rebuildSim(keep){
   const old = tex, oldRi = ri;
   initSimSize();
-  tex=[makeTarget(),makeTarget()]; ri=0;
-  if(keep && old){ copyInto(old[oldRi],tex[0]); copyInto(tex[0],tex[1]);
-    old.forEach(t=>{gl.deleteTexture(t.tex);gl.deleteFramebuffer(t.fbo);});
-  } else fillBoth();
-}
-function resizeCanvas(){
-  const dpr=Math.min(devicePixelRatio||1,2);
-  let w=Math.round(innerWidth*dpr), h=Math.round(innerHeight*dpr);
-  const cap=3500000;
-  if(w*h>cap){ const s=Math.sqrt(cap/(w*h)); w=Math.round(w*s); h=Math.round(h*s); }
-  canvas.width=w; canvas.height=h;
-}
-
-/* ---------- 多點觸控 ---------- */
-const pointers=new Map();
-let tool='push';
-const TOOL_ID={push:0,pour:1};
-function toUV(e){
-  const r=canvas.getBoundingClientRect();
-  return {u:(e.clientX-r.left)/r.width, v:1-(e.clientY-r.top)/r.height};
-}
-canvas.addEventListener('pointerdown',e=>{
-  e.preventDefault();
-  if(portraitPaused || !experienceStarted)return;
-  canvas.setPointerCapture(e.pointerId);
-  const {u,v}=toUV(e);
-  pointers.set(e.pointerId,{u,v,pu:u,pv:v});
-});
-canvas.addEventListener('pointermove',e=>{
-  const p=pointers.get(e.pointerId); if(!p) return;
-  const {u,v}=toUV(e); p.u=u; p.v=v;
-});
-['pointerup','pointercancel','lostpointercapture'].forEach(t=>
-  canvas.addEventListener(t,e=>pointers.delete(e.pointerId)));
-document.addEventListener('contextmenu',e=>e.preventDefault());
-document.addEventListener('gesturestart',e=>e.preventDefault());
-
-/* ---------- 風 ---------- */
-let windStart=0, ambientStart=0, nextGust=0, drawingPhase=false, finishRequested=false;
-function windLevel(now){
-  if(!windStart){
-    if(!drawingPhase || !drawStart) return 0;
-    if(!nextGust) nextGust=now+6;
-    if(!ambientStart && now>=nextGust) ambientStart=now;
-    if(!ambientStart) return 0;
-    const t=(now-ambientStart)/4.5;
-    if(t>=1){ ambientStart=0; nextGust=now+5+Math.random()*4; return 0; }
-    return 0.8*Math.sin(Math.PI*Math.max(0,t));
+  tex = [makeTarget(), makeTarget()];
+  ri = 0;
+  if(keep && old){
+    copyInto(old[oldRi], tex[0]);
+    copyInto(tex[0], tex[1]);
+    old.forEach(t => {
+      gl.deleteTexture(t.tex);
+      gl.deleteFramebuffer(t.fbo);
+    });
+  } else {
+    fillBoth(1.0 + Math.random() * 10.0);
+    if(old){
+      old.forEach(t => {
+        gl.deleteTexture(t.tex);
+        gl.deleteFramebuffer(t.fbo);
+      });
+    }
   }
-  const t=(now-windStart)/CONFIG.WIND_DUR;
-  if(t>=1){ windStart=0; return 0; }
-  if(t<=0) return 0;
-  return 2.0*Math.sin(Math.PI*t);
 }
+
+/* 3. 修復 Fullscreen 與 Resize 時 Canvas 寬高計算 */
+function resizeCanvas(){
+  // 清除任何舊版殘留行內樣式，讓 CSS 100dvw/100dvh + object-fit: cover 生效
+  canvas.style.width = '';
+  canvas.style.height = '';
+  canvas.style.left = '';
+  canvas.style.top = '';
+  canvas.style.right = '';
+  canvas.style.bottom = '';
+
+  const rect = canvas.getBoundingClientRect();
+  const cssW = Math.max(1, Math.round(rect.width || window.innerWidth));
+  const cssH = Math.max(1, Math.round(rect.height || window.innerHeight));
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(cssW * dpr);
+  let h = Math.round(cssH * dpr);
+  const capPx = 3500000;
+  if(w * h > capPx){
+    const s = Math.sqrt(capPx / (w * h));
+    w = Math.max(1, Math.round(w * s));
+    h = Math.max(1, Math.round(h * s));
+  }
+  if(canvas.width !== w || canvas.height !== h){
+    canvas.width = w;
+    canvas.height = h;
+  }
+}
+
+/* ---------- 多點觸控與手勢偵測 ---------- */
+const pointers = new Map();
+let tool = 'push';
+const TOOL_ID = {push: 0, pour: 1};
+
+function setTool(nextTool){
+  tool = nextTool;
+  document.querySelectorAll('#bar .tool').forEach(x => {
+    x.classList.toggle('on', x.dataset.tool === tool);
+  });
+}
+
+function toUV(e){
+  const r = canvas.getBoundingClientRect();
+  const u = (e.clientX - r.left) / Math.max(1, r.width);
+  const v = 1 - (e.clientY - r.top) / Math.max(1, r.height);
+  return {u: Math.min(1, Math.max(0, u)), v: Math.min(1, Math.max(0, v))};
+}
+
+let hasStartedDrawingInStage1 = false;
+
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if(portraitPaused || !experienceStarted) return;
+  try { canvas.setPointerCapture(e.pointerId); } catch(err){}
+  const {u, v} = toUV(e);
+  pointers.set(e.pointerId, {u, v, pu: u, pv: v, moved: 0});
+
+  // 階段一：使用者開始觸碰作畫時，切換為「試著用沙，將它們描繪或寫出來……」
+  if(currentStage === STAGE.STAGE_1 && !hasStartedDrawingInStage1){
+    hasStartedDrawingInStage1 = true;
+    setCap(TEXTS.STAGE_1_DRAW);
+  }
+});
+
+canvas.addEventListener('pointermove', e => {
+  const p = pointers.get(e.pointerId);
+  if(!p) return;
+  const {u, v} = toUV(e);
+  const dist = Math.hypot(u - p.u, v - p.v);
+  p.moved += dist;
+  p.u = u;
+  p.v = v;
+});
+
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t =>
+  canvas.addEventListener(t, e => pointers.delete(e.pointerId))
+);
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+/* ---------- 2. 強化「沙被吹散」的觸發邏輯 (triggerWind) ---------- */
+let windStart = 0;
+let continuousInteractTime = 0;
+let idleGapTime = 0;
+let windCount = 0;
+let stage2TransitionTriggered = false;
+
+function triggerWind(){
+  const now = experienceNow() / 1000;
+  windStart = now;
+  continuousInteractTime = 0;
+  idleGapTime = 0;
+  windCount++;
+
+  // 視覺微震與模糊回饋
+  canvas.classList.add('wind-active');
+  setTimeout(() => canvas.classList.remove('wind-active'), CONFIG.WIND_DUR * 1000);
+
+  // 若裝置支援震動，提供輕微觸覺回饋
+  try {
+    if(navigator.vibrate) navigator.vibrate([35, 50, 65]);
+  } catch(e){}
+
+  // 疊加階段二精確文案
+  setCap(TEXTS.STAGE_2_WIND);
+
+  // 若目前在階段一，推進至階段二敘事流程
+  if(currentStage === STAGE.STAGE_1 && !stage2TransitionTriggered){
+    stage2TransitionTriggered = true;
+    advanceToStage2();
+  }
+}
+
+function windLevel(now){
+  if(!windStart) return 0;
+  const t = (now - windStart) / CONFIG.WIND_DUR;
+  if(t >= 1){
+    windStart = 0;
+    return 0;
+  }
+  if(t <= 0) return 0;
+  // 雙波陣風曲線，營造明顯但自然的沙畫模糊與吹散感
+  const wave = Math.sin(Math.PI * t) * (1.0 + 0.35 * Math.sin(Math.PI * 3.0 * t));
+  return 2.1 * Math.max(0, wave);
+}
+
+/* ---------- 五階段互動敘事 State Management ---------- */
+let currentStage = STAGE.STAGE_1;
+let narrativeVer = 0;
+let stage3PushTime = 0;
+let lightBoost = 0.0;
+let targetLightBoost = 0.0;
+
+function setCap(t){
+  cap.innerHTML = t.replace(/\n/g, '<br>');
+  capWrap.style.opacity = '1';
+}
+function clearCap(){
+  capWrap.style.opacity = '0';
+}
+
+function waitExp(ms, ver){
+  return new Promise(resolve => {
+    const end = experienceNow() + ms;
+    const id = setInterval(() => {
+      if(ver !== narrativeVer){
+        clearInterval(id);
+        resolve(false);
+        return;
+      }
+      if(!portraitPaused && experienceNow() >= end){
+        clearInterval(id);
+        resolve(true);
+      }
+    }, 60);
+  });
+}
+
+function waitUntilExp(pred, ver){
+  return new Promise(resolve => {
+    const id = setInterval(() => {
+      if(ver !== narrativeVer){
+        clearInterval(id);
+        resolve(false);
+        return;
+      }
+      if(!portraitPaused && pred()){
+        clearInterval(id);
+        resolve(true);
+      }
+    }, 100);
+  });
+}
+
+// 階段一：珍視與建構 (沙的凝聚)
+async function startStage1(){
+  const ver = ++narrativeVer;
+  currentStage = STAGE.STAGE_1;
+  hasStartedDrawingInStage1 = false;
+  stage2TransitionTriggered = false;
+  continuousInteractTime = 0;
+  idleGapTime = 0;
+  stage3PushTime = 0;
+  windStart = 0;
+  windCount = 0;
+  targetLightBoost = 0.0;
+  resetBtn.classList.remove('show');
+  bar.classList.remove('hidden');
+  showTab.classList.remove('show');
+
+  // 初始引導文案
+  setCap(TEXTS.STAGE_1_INIT);
+
+  // 若使用者尚未觸碰，4.2 秒後自動切換為「試著用沙，將它們描繪或寫出來……」
+  const ok = await waitExp(4200, ver);
+  if(!ok || ver !== narrativeVer) return;
+  if(currentStage === STAGE.STAGE_1 && !hasStartedDrawingInStage1){
+    hasStartedDrawingInStage1 = true;
+    setCap(TEXTS.STAGE_1_DRAW);
+  }
+}
+
+// 階段二：脆弱與消散 (沙的不可控) -> 階段三 -> 階段四 -> 階段五
+async function advanceToStage2(){
+  const ver = ++narrativeVer;
+  currentStage = STAGE.STAGE_2;
+
+  // 等待微風吹散與階段二文案沉澱
+  let ok = await waitExp(CONFIG.WIND_DUR * 1000 + 2400, ver);
+  if(!ok) return;
+
+  // 階段三：發現與恆常 (推沙見光)
+  currentStage = STAGE.STAGE_3;
+  stage3PushTime = 0;
+  setTool('push'); // 自動切換為「推沙」手勢，引導使用者撥開沙層
+  clearCap();
+  ok = await waitExp(700, ver);
+  if(!ok) return;
+
+  setCap(TEXTS.STAGE_3_PROMPT);
+
+  // 等待使用者實際撥開沙層（或最長 12 秒後保底推進），光線逐漸清晰
+  const startWaitPush = experienceNow();
+  ok = await waitUntilExp(() => {
+    return stage3PushTime >= CONFIG.STAGE3_PUSH_NEED || (experienceNow() - startWaitPush) >= 12000;
+  }, ver);
+  if(!ok) return;
+
+  targetLightBoost = 1.0; // 底層燈箱光芒逐漸清晰明亮
+  clearCap();
+  ok = await waitExp(700, ver);
+  if(!ok) return;
+
+  setCap(TEXTS.STAGE_3_LIGHT);
+  ok = await waitExp(6500, ver);
+  if(!ok) return;
+
+  // 階段四：立意昇華 (神永恆的光) — 停留足夠時間讓參加者沉澱
+  currentStage = STAGE.STAGE_4;
+  clearCap();
+  ok = await waitExp(900, ver);
+  if(!ok) return;
+
+  setCap(TEXTS.STAGE_4_GOD_1);
+  ok = await waitExp(7200, ver);
+  if(!ok) return;
+
+  clearCap();
+  ok = await waitExp(900, ver);
+  if(!ok) return;
+
+  setCap(TEXTS.STAGE_4_GOD_2);
+  ok = await waitExp(7500, ver);
+  if(!ok) return;
+
+  // 階段五：自由發揮與重置 (結束流程)
+  currentStage = STAGE.STAGE_5;
+  clearCap();
+  ok = await waitExp(900, ver);
+  if(!ok) return;
+
+  setCap(TEXTS.STAGE_5_FREE);
+  resetBtn.classList.add('show'); // 顯示「🔄 結束並重置 (給下一位)」按鈕
+
+  // 引導文字停留後平滑淡出，進入無干擾的「自由創作模式」
+  ok = await waitExp(6500, ver);
+  if(!ok) return;
+  clearCap();
+}
+
+// 結束並重置（給下一位參加者）
+function resetExperience(){
+  narrativeVer++;
+  pointers.clear();
+  clearAll();
+  fillBoth(1.0 + Math.random() * 20.0);
+  lightBoost = 0.0;
+  targetLightBoost = 0.0;
+  setTool('push');
+  startStage1();
+}
+
+resetBtn.addEventListener('click', resetExperience);
 
 /* ---------- 主迴圈 ---------- */
-let lastT=0;
+let lastT = 0;
+
 function step(){
-  gl.bindFramebuffer(gl.FRAMEBUFFER,tex[1-ri].fbo);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex[ri].tex);
-  gl.drawArrays(gl.TRIANGLES,0,3);
-  ri=1-ri;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, tex[1 - ri].fbo);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex[ri].tex);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  ri = 1 - ri;
 }
+
 function render(now){
-  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
   gl.useProgram(rp);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex[ri].tex);
-  gl.uniform1i(RL.uHeight,0);
-  gl.uniform2f(RL.uCanvas,canvas.width,canvas.height);
-  gl.uniform2f(RL.uSimSize,simW,simH);
-  gl.uniform3f(RL.uLight,lightCol[0],lightCol[1],lightCol[2]);
-  gl.uniform1f(RL.uTime,now);
-  gl.uniform1f(RL.uAbsorb,CONFIG.ABSORB);
-  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex[ri].tex);
+  gl.uniform1i(RL.uHeight, 0);
+  gl.uniform2f(RL.uCanvas, canvas.width, canvas.height);
+  gl.uniform2f(RL.uSimSize, simW, simH);
+  gl.uniform3f(RL.uLight, lightCol[0], lightCol[1], lightCol[2]);
+  gl.uniform1f(RL.uTime, now);
+  gl.uniform1f(RL.uAbsorb, CONFIG.ABSORB);
+  gl.uniform1f(RL.uLightBoost, lightBoost);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
+
 function frame(nowMs){
   requestAnimationFrame(frame);
-  if(portraitPaused || !experienceStarted){lastT=0;return;}
-  const now=experienceNow()/1000;
-  const dt=Math.min(0.033, lastT? now-lastT : 0.016); lastT=now;
+  if(portraitPaused || !experienceStarted){
+    lastT = 0;
+    return;
+  }
+  const now = experienceNow() / 1000;
+  const dt = Math.min(0.033, lastT ? now - lastT : 0.016);
+  lastT = now;
 
-  if(drawingPhase && pointers.size>0) drawnTime+=dt;
-  if(drawingPhase && !drawStart && drawnTime>0.5) drawStart=now;
+  // 平滑過渡底層燈箱亮度清晰度
+  lightBoost += (targetLightBoost - lightBoost) * Math.min(1.0, dt * 1.8);
 
-  const b=new Float32Array(40), bp=new Float32Array(40);
-  let n=0;
-  const baseR=CONFIG.BRUSH_R*Math.min(simW,simH);
-  const rad = tool==='pour'? baseR*1.3 : baseR;
-  const str = tool==='push'? CONFIG.PUSH : CONFIG.POUR;
-  pointers.forEach(p=>{
-    if(n>=10) return;
-    b.set([p.u,p.v,rad,str],n*4);
-    bp.set([p.pu,p.pv,TOOL_ID[tool],0],n*4);
+  // 偵測使用者互動時間與階段三撥沙手勢
+  if(pointers.size > 0){
+    idleGapTime = 0;
+    // 在階段一、階段二或階段五自由創作時累積連續互動時間（微風吹拂期間暫不重複累加）
+    if(!windStart && (currentStage === STAGE.STAGE_1 || currentStage === STAGE.STAGE_2 || currentStage === STAGE.STAGE_5)){
+      continuousInteractTime += dt;
+      if(continuousInteractTime >= CONFIG.INTERACT_WIND_SEC){
+        triggerWind();
+      }
+    }
+    // 階段三：偵測使用者撥開沙層手勢，讓底層光線逐漸清晰
+    if(currentStage === STAGE.STAGE_3){
+      stage3PushTime += dt;
+      targetLightBoost = Math.min(1.0, stage3PushTime / CONFIG.STAGE3_PUSH_NEED);
+    }
+  } else {
+    idleGapTime += dt;
+    // 短暫換筆（1.8 秒內）不歸零，確保自然作畫能穩定累積至 15 秒觸發微風
+    if(idleGapTime > 1.8 && currentStage !== STAGE.STAGE_1){
+      continuousInteractTime = Math.max(0, continuousInteractTime - dt * 0.5);
+    }
+  }
+
+  const b = new Float32Array(40), bp = new Float32Array(40);
+  let n = 0;
+  const baseR = CONFIG.BRUSH_R * Math.min(simW, simH);
+  const rad = tool === 'pour' ? baseR * 1.3 : baseR;
+  const str = tool === 'push' ? CONFIG.PUSH : CONFIG.POUR;
+  pointers.forEach(p => {
+    if(n >= 10) return;
+    b.set([p.u, p.v, rad, str], n * 4);
+    bp.set([p.pu, p.pv, TOOL_ID[tool], 0], n * 4);
     n++;
   });
-  pointers.forEach(p=>{p.pu=p.u;p.pv=p.v;});
+  pointers.forEach(p => { p.pu = p.u; p.pv = p.v; });
 
   gl.useProgram(sp);
-  gl.viewport(0,0,simW,simH);
-  gl.uniform1i(SL.uPrev,0);
-  gl.uniform2f(SL.uSimSize,simW,simH);
-  const wl=windLevel(now);
-  gl.uniform2f(SL.uWind, wl, wl*0.12);
-  gl.uniform1f(SL.uTalus,CONFIG.TALUS);
-  gl.uniform1f(SL.uFlow,CONFIG.FLOW);
-  gl.uniform1f(SL.uTime,now);
-  gl.uniform1f(SL.uDt,dt);
-  gl.uniform1f(SL.uSettleRate,CONFIG.SETTLE_RATE);
-  gl.uniform4fv(SL.uBrush,b);
-  gl.uniform4fv(SL.uBrushPrev,bp);
-  gl.uniform1i(SL.uCount,n);
+  gl.viewport(0, 0, simW, simH);
+  gl.uniform1i(SL.uPrev, 0);
+  gl.uniform2f(SL.uSimSize, simW, simH);
+  const wl = windLevel(now);
+  gl.uniform2f(SL.uWind, wl, wl * 0.14);
+  gl.uniform1f(SL.uTalus, CONFIG.TALUS);
+  gl.uniform1f(SL.uFlow, CONFIG.FLOW);
+  gl.uniform1f(SL.uTime, now);
+  gl.uniform1f(SL.uDt, dt);
+  gl.uniform1f(SL.uSettleRate, CONFIG.SETTLE_RATE);
+  gl.uniform4fv(SL.uBrush, b);
+  gl.uniform4fv(SL.uBrushPrev, bp);
+  gl.uniform1i(SL.uCount, n);
   step();
-  gl.uniform1i(SL.uCount,0);
-  gl.uniform2f(SL.uWind,0,0);
-  for(let i=0;i<CONFIG.RELAX_STEPS;i++) step();
+  gl.uniform1i(SL.uCount, 0);
+  gl.uniform2f(SL.uWind, 0, 0);
+  for(let i = 0; i < CONFIG.RELAX_STEPS; i++) step();
   render(now);
 }
 
-/* ---------- 引導流程 ---------- */
-const capWrap=document.getElementById('capWrap');
-const cap=document.getElementById('cap');
-const capBtns=document.getElementById('capBtns');
-const skipBtn=document.getElementById('skipBtn');
-let guiding=false, gVer=0, drawnTime=0, drawStart=0;
-const doneBtn=document.getElementById("doneBtn");
-
-function setCap(t){ cap.innerHTML=t.replace(/\n/g,'<br>'); capWrap.style.opacity='1'; }
-function clearCap(){ capWrap.style.opacity='0'; }
-function setBtns(list){
-  capBtns.innerHTML='';
-  for(const [label,cb] of list){
-    const b=document.createElement('button');
-    b.textContent=label;
-    b.addEventListener('click',cb);
-    capBtns.appendChild(b);
-  }
-}
-const wait=ms=>new Promise(resolve=>{
-  const end=experienceNow()+ms;
-  const id=setInterval(()=>{if(!portraitPaused && experienceNow()>=end){clearInterval(id);resolve();}},60);
-});
-function waitUntil(pred, ok){
-  return new Promise(res=>{
-    const iv=setInterval(()=>{
-      if(!ok()){ clearInterval(iv); res(false); }
-      else if(!portraitPaused && pred()){ clearInterval(iv); res(true); }
-    },120);
-  });
-}
-function ask(opts){
-  return new Promise(res=>{
-    setBtns(opts.map(o=>[o[0],()=>{ setBtns([]); res(o[1]); }]));
-  });
-}
-function enterFree(){
-  guiding=false; drawingPhase=false; windStart=0; ambientStart=0; nextGust=0;
-  skipBtn.style.display="none"; doneBtn.style.display="none";
-  showTab.style.display='';
-  clearCap(); setBtns([]);
-  bar.classList.remove('hidden');
-  setCap('自由發揮');
-  setTimeout(()=>{ if(!guiding) clearCap(); },2600);
-  toast('可隨時以工具列的 🧭 引導 重新進入引導');
-}
-function finishDrawing(){
-  if(!guiding || !drawingPhase || finishRequested) return;
-  finishRequested=true; drawingPhase=false; ambientStart=0;
-  doneBtn.style.display="none"; setBtns([]);
-  setCap('完成了。\n先看看你留下的畫面。');
-}
-doneBtn.addEventListener("click",finishDrawing);
-function startGuide(){
-  fillBoth(); drawnTime=0; drawStart=0; windStart=0;
-  ambientStart=0; nextGust=0; drawingPhase=true; finishRequested=false; setBtns([]);
-  guiding=true;
-  bar.classList.remove('hidden');   // 引導期間也保留完整工具
-  showTab.style.display='';
-  skipBtn.style.display="block"; doneBtn.style.display="none";
-  guide();
-}
-skipBtn.addEventListener('click',()=>{ gVer++; enterFree(); });
-document.getElementById('guideBtn').addEventListener('click',()=>{ startGuide(); });
-
-async function guide(){
-  const v=++gVer; const ok=()=>v===gVer&&guiding;
-  await wait(900); if(!ok())return;
-
-  setCap('想起你最珍視的關係、事物。\n用沙，建構那幅圖畫。');
-  const reached=await waitUntil(()=>drawStart>0 && experienceNow()/1000-drawStart>=CONFIG.DRAW_TIME,ok);
-  if(!reached||!ok())return;
-  setCap('完成了嗎？\n這是否你珍視、想留住的畫面？');
-  const ans=await ask([['還沒，繼續','more'],['完成了','done']]);
-  if(!ok())return;
-  if(ans==='more'){
-    doneBtn.style.display='block';
-    setCap('慢慢來，不急。');
-    setTimeout(()=>{if(ok()&&drawingPhase)clearCap();},3500);
-    const finished=await waitUntil(()=>finishRequested,ok);
-    if(!finished||!ok())return;
-  }else finishDrawing();
-  drawingPhase=false; ambientStart=0; nextGust=0;
-  doneBtn.style.display='none';
-  await wait(1400); if(!ok())return;
-
-  clearCap(); await wait(800); if(!ok())return;
-  setCap('沙是暫存的。\n萬物都有定時，\n我們無法控制它何時轉變。');
-  await wait(4600); if(!ok())return;
-  clearCap(); await wait(700); if(!ok())return;
-
-  windStart=experienceNow()/1000;           // 結尾強風：搬運表層沙，而非清空
-  await wait(CONFIG.WIND_DUR*1000+400); if(!ok())return;
-
-  setCap('在你還未留意的時候，\n光就一直在為你亮著；\n風帶走一切之後，\n它仍然亮著。');
-  await wait(6500); if(!ok())return;
-  clearCap(); await wait(1000); if(!ok())return;
-
-  setCap('是否有什麼，\n是時間帶不走的？');
-  await wait(7000); if(!ok())return;          // 留白
-  clearCap(); await wait(1300); if(!ok())return;
-
-  setCap('就像神，那道永恆的光，\n一直在為你亮著。');
-  await wait(5200); if(!ok())return;
-  clearCap(); await wait(900); if(!ok())return;
-
-  capWrap.style.opacity='1';
-  setBtns([['再來一次',()=>{ setBtns([]); startGuide(); }],
-           ['自由發揮',()=>{ setBtns([]); enterFree(); }]]);
-}
-
-/* ---------- UI ---------- */
-const bar=document.getElementById('bar'), showTab=document.getElementById('showTab');
-const toastEl=document.getElementById('toast');
-let toastT=null;
+/* ---------- 工具列 UI ---------- */
+let toastT = null;
 function toast(msg){
-  toastEl.textContent=msg; toastEl.style.opacity='1';
-  clearTimeout(toastT); toastT=setTimeout(()=>toastEl.style.opacity='0',3800);
+  toastEl.textContent = msg;
+  toastEl.style.opacity = '1';
+  clearTimeout(toastT);
+  toastT = setTimeout(() => toastEl.style.opacity = '0', 3800);
 }
 
-document.querySelectorAll('#bar .tool').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    tool=btn.dataset.tool;
-    document.querySelectorAll('#bar .tool').forEach(x=>x.classList.toggle('on',x===btn));
-  });
+document.querySelectorAll('#bar .tool').forEach(btn => {
+  btn.addEventListener('click', () => setTool(btn.dataset.tool));
 });
-document.getElementById('fillBtn').addEventListener('click',()=>fillBoth());
-document.getElementById('clearBtn').addEventListener('click',()=>clearAll());
-document.getElementById('saveBtn').addEventListener('click',()=>{
-  render(experienceNow()/1000);
-  const d=new Date(), pad=x=>String(x).padStart(2,'0');
-  const a=document.createElement('a');
-  a.download=`sand-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.png`;
-  a.href=canvas.toDataURL('image/png');
-  a.click();
+document.getElementById('fillBtn').addEventListener('click', () => fillBoth(1.0 + Math.random() * 20.0));
+document.getElementById('clearBtn').addEventListener('click', () => {
+  clearAll();
+  if(currentStage === STAGE.STAGE_3){
+    stage3PushTime = CONFIG.STAGE3_PUSH_NEED;
+    targetLightBoost = 1.0;
+  }
 });
 
-/* ---------- 全螢幕 ---------- */
-const fsBtn=document.getElementById('fsBtn');
-function fsElement(){ return document.fullscreenElement||document.webkitFullscreenElement||null; }
+/* ---------- 3. 全螢幕 API 與比例同步 ---------- */
+const fsBtn = document.getElementById('fsBtn');
+function fsElement(){
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
 function zenFallback(){
-  bar.classList.add('hidden'); showTab.classList.add('show');
+  bar.classList.add('hidden');
+  showTab.classList.add('show');
   toast('此裝置不支援網頁全螢幕，已隱藏工具列。iPhone 請用「分享 → 加入主畫面」，從主畫面開啟即為全螢幕。');
 }
-fsBtn.addEventListener('click',()=>{
+fsBtn.addEventListener('click', () => {
   if(fsElement()){
     if(document.exitFullscreen) document.exitFullscreen();
     else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
     return;
   }
-  const el=document.documentElement;
-  let p=null;
-  try{
-    if(el.requestFullscreen) p=el.requestFullscreen();
+  const el = document.documentElement;
+  let p = null;
+  try {
+    if(el.requestFullscreen) p = el.requestFullscreen();
     else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-  }catch(e){}
-  if(p&&p.then) p.catch(()=>zenFallback());
-  setTimeout(()=>{ if(!fsElement()) zenFallback(); },500);
+  } catch(e){}
+  if(p && p.then) p.catch(() => zenFallback());
+  setTimeout(() => { if(!fsElement()) zenFallback(); }, 500);
 });
-['fullscreenchange','webkitfullscreenchange'].forEach(ev=>addEventListener(ev,()=>{
-  const on=!!fsElement();
-  fsBtn.innerHTML=(on?'✕':'⛶')+'<span>'+(on?'退出':'全螢幕')+'</span>';
-}));
 
-document.getElementById('hideBtn').addEventListener('click',()=>{bar.classList.add('hidden');showTab.classList.add('show');});
-showTab.addEventListener('click',()=>{bar.classList.remove('hidden');showTab.classList.remove('show');});
-
-let lightCol=[1,0.75,0.5];
-function mix3(a,b,f){return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];}
-function updateLight(){
-  const t=document.getElementById('lightRange').value/100;
-  const warm=[1.0,0.62,0.30], mid=[1.0,0.92,0.76], cool=[0.80,0.88,1.0];
-  lightCol = t<0.5 ? mix3(warm,mid,t*2) : mix3(mid,cool,(t-0.5)*2);
+let resizeTimer = null;
+function syncViewportAndAspect(){
+  resizeCanvas();
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if(!portraitPaused && experienceStarted){
+      resizeCanvas();
+      rebuildSim(true); // 保留現有沙畫且依新比例重新對齊網格，不拉伸變扁
+    }
+  }, 150);
 }
-document.getElementById('lightRange').addEventListener('input',updateLight);
+
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
+  window.addEventListener(ev, () => {
+    const on = !!fsElement();
+    fsBtn.innerHTML = (on ? '✕' : '⛶') + '<span>' + (on ? '退出' : '全螢幕') + '</span>';
+    syncViewportAndAspect();
+  })
+);
+
+document.getElementById('hideBtn').addEventListener('click', () => {
+  bar.classList.add('hidden');
+  showTab.classList.add('show');
+});
+showTab.addEventListener('click', () => {
+  bar.classList.remove('hidden');
+  showTab.classList.remove('show');
+});
+
+let lightCol = [1, 0.75, 0.5];
+function mix3(a, b, f){
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+function updateLight(){
+  const t = document.getElementById('lightRange').value / 100;
+  const warm = [1.0, 0.62, 0.30], mid = [1.0, 0.92, 0.76], cool = [0.80, 0.88, 1.0];
+  lightCol = t < 0.5 ? mix3(warm, mid, t * 2) : mix3(mid, cool, (t - 0.5) * 2);
+}
+document.getElementById('lightRange').addEventListener('input', updateLight);
 updateLight();
 
-/* ---------- 啟動 ---------- */
-function updateOrientation(){
+/* ---------- 4. 橫放提示遮罩與初始 State 啟動 ---------- */
+function updateOrientationAndResize(){
   experienceNow();
-  portraitPaused=innerHeight>innerWidth;
+  const isLandscape = isLandscapeScreen();
+  portraitPaused = !isLandscape;
   pointers.clear();
-  if(portraitPaused)return;
+
+  if(portraitPaused){
+    rotateNotice.classList.add('show');
+    return;
+  }
+
+  // 當偵測為橫向時，平滑淡出遮罩
+  rotateNotice.classList.remove('show');
+
   if(!experienceStarted){
-    resizeCanvas(); rebuildSim(false); experienceStarted=true; startGuide();
-  }else{
-    // Keep the original simulation and canvas aspect ratio; never resample the artwork.
-    const scale=Math.min(innerWidth/canvas.width,innerHeight/canvas.height);
-    canvas.style.width=(canvas.width*scale)+'px';
-    canvas.style.height=(canvas.height*scale)+'px';
-    canvas.style.left=((innerWidth-canvas.width*scale)/2)+'px';
-    canvas.style.top=((innerHeight-canvas.height*scale)/2)+'px';
-    canvas.style.right='auto';canvas.style.bottom='auto';
+    resizeCanvas();
+    rebuildSim(false);
+    experienceStarted = true;
+    startStage1();
+  } else {
+    // 橫放恢復或視窗改變時，重新計算 Canvas 寬高並等比例保留沙畫
+    syncViewportAndAspect();
   }
 }
-addEventListener('resize',updateOrientation);
-updateOrientation();
+
+window.addEventListener('resize', updateOrientationAndResize);
+window.addEventListener('orientationchange', updateOrientationAndResize);
+if(window.screen && window.screen.orientation && window.screen.orientation.addEventListener){
+  window.screen.orientation.addEventListener('change', updateOrientationAndResize);
+}
+
+updateOrientationAndResize();
 requestAnimationFrame(frame);
 </script>
 </body>
 </html>
-
-
-
-
