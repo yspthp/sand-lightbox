@@ -29,7 +29,7 @@
     transition:filter .6s ease, transform .15s ease;
   }
   #c.wind-active{
-    filter:saturate(.88) contrast(.98) blur(0.6px);
+    filter:saturate(.89) contrast(.99) blur(0.45px);
   }
 
   #frame{
@@ -37,7 +37,7 @@
     box-shadow:inset 0 0 90px rgba(0,0,0,.5),inset 0 0 8px rgba(0,0,0,.9);
   }
 
-  /* 敘事字幕容器 */
+  /* 敘事字幕與互動確認按鈕容器 */
   #capWrap{
     position:fixed;
     top:13%;
@@ -79,42 +79,66 @@
   }
   #cap:empty{display:none}
 
-  /* 階段五：明確的結束並重置按鈕（取代原本的「跳過」、「完成了」與「儲存」） */
-  #resetBtn{
-    position:fixed;
-    top:max(14px,env(safe-area-inset-top));
-    right:max(16px,env(safe-area-inset-right));
-    z-index:12;
-    background:rgba(22,18,14,.92);
+  #capBtns{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:12px;
+    pointer-events:auto;
+  }
+  #capBtns button,#doneBtn,#resetBtn{
+    background:rgba(22,18,14,.94);
     color:#fff8ed;
-    border:1px solid rgba(255,220,170,.45);
+    border:1px solid rgba(255,233,196,.45);
     border-radius:18px;
-    padding:10px 18px;
+    padding:10px 24px;
     min-height:44px;
-    font-size:14px;
+    font-size:15px;
     font-weight:500;
-    letter-spacing:1.5px;
+    letter-spacing:2px;
     box-shadow:0 4px 18px rgba(0,0,0,.45);
     backdrop-filter:blur(10px);
     -webkit-backdrop-filter:blur(10px);
     cursor:pointer;
     touch-action:manipulation;
+    transition:opacity .45s ease,transform .45s ease,visibility .45s ease,background .25s ease;
+  }
+  #capBtns button:active,#doneBtn:active,#resetBtn:active{
+    background:rgba(255,190,110,.28);
+  }
+  #capBtns button:focus-visible,#doneBtn:focus-visible,#resetBtn:focus-visible{
+    outline:2px solid #fff8ed;
+    outline-offset:4px;
+  }
+
+  /* 選擇「還沒，繼續」後顯示於左上角的「完成了」按鈕 */
+  #doneBtn{
+    position:fixed;
+    top:max(14px,env(safe-area-inset-top));
+    left:max(16px,env(safe-area-inset-left));
+    z-index:12;
+    padding:8px 18px;
+    font-size:14px;
+    display:none;
+  }
+
+  /* 階段五：明確的結束並重置按鈕 */
+  #resetBtn{
+    position:fixed;
+    top:max(14px,env(safe-area-inset-top));
+    right:max(16px,env(safe-area-inset-right));
+    z-index:12;
+    padding:10px 18px;
+    font-size:14px;
+    letter-spacing:1.5px;
     opacity:0;
     visibility:hidden;
     transform:translateY(-6px);
-    transition:opacity .6s ease,transform .6s ease,visibility .6s ease,background .25s ease;
   }
   #resetBtn.show{
     opacity:1;
     visibility:visible;
     transform:translateY(0);
-  }
-  #resetBtn:active{
-    background:rgba(255,190,110,.28);
-  }
-  #resetBtn:focus-visible{
-    outline:2px solid #fff8ed;
-    outline-offset:4px;
   }
 
   #toast{
@@ -185,6 +209,7 @@
   @media (max-height:500px) and (orientation:landscape){
     #capWrap{top:52px;max-width:calc(100% - 100px);gap:8px}
     #cap{font-size:20px;line-height:1.55;padding:6px 14px}
+    #capBtns button{padding:8px 18px}
   }
   @media (prefers-reduced-motion:reduce){
     #capWrap,#rotateNotice,#resetBtn{transition:none}
@@ -201,7 +226,8 @@
 
 <canvas id="c"></canvas>
 <div id="frame"></div>
-<div id="capWrap"><div id="cap"></div></div>
+<div id="capWrap"><div id="cap"></div><div id="capBtns"></div></div>
+<button id="doneBtn" type="button">完成了</button>
 <button id="resetBtn" type="button">🔄 結束並重置 (給下一位)</button>
 <div id="toast"></div>
 
@@ -234,16 +260,18 @@ const CONFIG = {
   BASE: 0.12,               // 鋪沙的基礎厚度
   BASE_NOISE: 0.02,         // 鋪沙的不均勻度
   ABSORB: 6.0,              // 燈箱吸光係數：越大對比越強
-  WIND_DUR: 5.8,            // 主微風吹散持續秒數
-  PRE_GUST_SEC: 7.5,        // 作畫滿 7.5 秒時先吹起第一陣輕微風動
-  INTERACT_WIND_SEC: 15.0,  // 作畫滿 15 秒時自動觸發主微風吹散並進入階段二
+  DRAW_TIME: 20.0,          // 作畫滿 20 秒後詢問是否完成
+  AMBIENT_GUST_DUR: 3.6,    // 作畫中途輕微風動持續秒數
+  AMBIENT_GUST_STR: 0.26,   // 作畫中途微風力度（輕柔微動，不破壞畫作）
+  WIND_DUR: 5.8,            // 確認完成後階段二大風持續秒數
+  MAIN_WIND_STR: 1.65,      // 確認完成後階段二大風力度
   STAGE3_PUSH_NEED: 0.45    // 階段三引導撥開沙層所需累積秒數
 };
 
 /* ================= 五階段互動敘事與精確文案 ================= */
 const STAGE = {
-  STAGE_1: 1, // 階段一：珍視與建構 (沙的凝聚)
-  STAGE_2: 2, // 階段二：脆弱與消散 (沙的不可控)
+  STAGE_1: 1, // 階段一：珍視與建構 (沙的凝聚 + 20秒確認是否完成)
+  STAGE_2: 2, // 階段二：脆弱與消散 (沙的不可控 — 確認完成後吹大風)
   STAGE_3: 3, // 階段三：發現與恆常 (推沙見光)
   STAGE_4: 4, // 階段四：立意昇華 (神永恆的光)
   STAGE_5: 5  // 階段五：自由發揮與重置 (結束流程)
@@ -252,12 +280,14 @@ const STAGE = {
 const TEXTS = {
   STAGE_1_INIT: '請在心中想起那些你重視的人、事、物。',
   STAGE_1_DRAW: '試著用沙，將它們描繪或寫出來……',
+  STAGE_1_ASK: '完成了嗎？\n這是否你珍視、想留住的畫面？',
+  STAGE_1_MORE: '慢慢來，不急。',
   STAGE_2_WIND: '我們緊緊抓著、努力守護的，終究如沙般脆弱，總是不由自主地消散……',
   STAGE_3_PROMPT: '請輕輕撥開沙層，看看底下。',
   STAGE_3_LIGHT: '無論沙如何聚散，底下的光，一直都在，從未改變。',
   STAGE_4_GOD_1: '沙會散去，但神，也就是那道永恆的光卻從不離開。',
   STAGE_4_GOD_2: '在神的眼中，你就是這道光所照耀的珍貴存在。',
-  STAGE_5_FREE: '現在，請在光中自由創作。體驗結束後，請為下一位朋友重置。',
+  STAGE_5_FREE: '歡迎自由創作',
   RESET_BTN: '🔄 結束並重置 (給下一位)'
 };
 /* ============================================================ */
@@ -267,6 +297,8 @@ const errBox = document.getElementById('err');
 const rotateNotice = document.getElementById('rotateNotice');
 const capWrap = document.getElementById('capWrap');
 const cap = document.getElementById('cap');
+const capBtns = document.getElementById('capBtns');
+const doneBtn = document.getElementById('doneBtn');
 const resetBtn = document.getElementById('resetBtn');
 const bar = document.getElementById('bar');
 const showTab = document.getElementById('showTab');
@@ -282,7 +314,6 @@ function fail(msg){
 
 /* ---------- 裝置橫向偵測與計時器 ---------- */
 function isLandscapeScreen(){
-  // 以視窗實際寬高比為主，搭配 screen.orientation.type 輔助判斷
   if(window.innerWidth !== window.innerHeight){
     return window.innerWidth > window.innerHeight;
   }
@@ -340,13 +371,13 @@ function locs(p, names){
 
 const VS = "#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.,1.);}";
 
-/* ---------- 沙層模擬 Shader（高度場 + 安息角 + 線段筆刷 + 強效風吹模糊/消散） ---------- */
+/* ---------- 沙層模擬 Shader（區分中途輕柔微風 vs 階段二強風吹散） ---------- */
 const SIM_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uPrev;
 uniform vec2  uSimSize;
 uniform vec2  uWind;       // 風向*強度
-uniform float uTalus, uFlow, uTime, uDt, uSettleRate, uBase;
+uniform float uTalus, uFlow, uTime, uDt, uSettleRate, uBase, uWindMain;
 uniform int   uCount;
 uniform vec4  uBrush[10];
 uniform vec4  uBrushPrev[10];
@@ -355,6 +386,16 @@ float hash21(vec2 p){
   vec3 p3=fract(vec3(p.xyx)*0.1031);
   p3+=dot(p3,p3.yzx+33.33);
   return fract((p3.x+p3.y)*p3.z);
+}
+float windFlux(vec2 cell, float strength){
+  if(any(lessThan(cell,vec2(0.5))) || any(greaterThan(cell,uSimSize-0.5))) return 0.0;
+  float h=texture(uPrev,cell/uSimSize).r;
+  float upstream=texture(uPrev,(cell-vec2(2.,0.))/uSimSize).r;
+  float ridge=smoothstep(0.,0.045,max(0.,h-upstream));
+  float bands=0.45+0.55*pow(0.5+0.5*sin(cell.y*0.075+sin(cell.y*0.021)+uTime*0.6),2.);
+  float gust=0.65+0.35*sin(cell.x*0.023-uTime*2.4+cell.y*0.013);
+  float rate=min(0.14, strength*uDt*(2.2+ridge*6.0)*bands*gust);
+  return h*rate;
 }
 void main(){
   vec2 uv = gl_FragCoord.xy/uSimSize;
@@ -388,34 +429,41 @@ void main(){
     nh=mix(nh,incoming,settle*8.0);
   }
 
-  // 風吹散與模糊效果：大尺度平流拉絲 + 多點方向模糊 + 飛沙回填筆觸溝槽
   float wlen = length(uWind);
   if(wlen > 0.001){
-    vec2 wdir = uWind / wlen;
-    float gust   = hash21(floor(px*0.045) + floor(uTime*3.5)*7.7);
-    float streak = hash21(floor(px*vec2(0.08, 0.32)));
-    float speed  = (0.5 + 1.4*streak) * (0.6 + 0.9*gust);
+    if(uWindMain < 0.5){
+      // 作畫中途的微風：只輕微吹動沙脊表層顆粒，力度溫和、不覆蓋或破壞畫作
+      vec2 hop = vec2(2.0, 0.0);
+      float outgoing = px.x+hop.x<=uSimSize.x-0.5 ? windFlux(px, wlen) : 0.0;
+      float incoming = windFlux(px-hop, wlen);
+      nh = max(0.0, nh + incoming - outgoing);
+      float avg4 = (hN+hS+hE+hW)*0.25;
+      nh = mix(nh, avg4, clamp(0.035 * wlen, 0.0, 0.04));
+    } else {
+      // 階段二確認完成後的大風：平流拉絲 + 方向擴散模糊 + 飛沙回填溝槽
+      vec2 wdir = uWind / wlen;
+      float gust   = hash21(floor(px*0.045) + floor(uTime*3.5)*7.7);
+      float streak = hash21(floor(px*vec2(0.08, 0.32)));
+      float speed  = (0.5 + 1.4*streak) * (0.6 + 0.9*gust);
 
-    // 1. 真實平流位移（讓沙畫線條明顯隨風向右飄移拉開）
-    vec2 off = wdir * speed * 2.8 * wlen;
-    float phase = px.x*0.028 + px.y*0.012 - uTime*5.0;
-    off.y += sin(phase) * (0.6 + 1.3*streak) * wlen;
-    off.x += sin(phase*0.7 + 1.7) * 0.6 * wlen;
-    float adv = texture(uPrev, clamp((px - off)/uSimSize, vec2(0.002), vec2(0.998))).r;
+      vec2 off = wdir * speed * 2.5 * wlen;
+      float phase = px.x*0.028 + px.y*0.012 - uTime*5.0;
+      off.y += sin(phase) * (0.55 + 1.2*streak) * wlen;
+      off.x += sin(phase*0.7 + 1.7) * 0.5 * wlen;
+      float adv = texture(uPrev, clamp((px - off)/uSimSize, vec2(0.002), vec2(0.998))).r;
 
-    // 2. 跨像素方向性擴散模糊（消除銳利筆觸邊緣，呈現沙被吹散模糊感）
-    float b1 = texture(uPrev, clamp(uv - wdir*tx*3.5*wlen, vec2(0.002), vec2(0.998))).r;
-    float b2 = texture(uPrev, clamp(uv - wdir*tx*8.0*wlen + vec2(0.0, tx.y*2.5), vec2(0.002), vec2(0.998))).r;
-    float b3 = texture(uPrev, clamp(uv - wdir*tx*13.0*wlen - vec2(0.0, tx.y*2.5), vec2(0.002), vec2(0.998))).r;
-    float blurH = (adv*0.42 + b1*0.26 + b2*0.18 + b3*0.14);
-    nh = mix(nh, blurH, clamp(0.55 * wlen, 0.0, 0.85));
+      float b1 = texture(uPrev, clamp(uv - wdir*tx*3.2*wlen, vec2(0.002), vec2(0.998))).r;
+      float b2 = texture(uPrev, clamp(uv - wdir*tx*7.5*wlen + vec2(0.0, tx.y*2.2), vec2(0.002), vec2(0.998))).r;
+      float b3 = texture(uPrev, clamp(uv - wdir*tx*12.0*wlen - vec2(0.0, tx.y*2.2), vec2(0.002), vec2(0.998))).r;
+      float blurH = (adv*0.44 + b1*0.26 + b2*0.18 + b3*0.12);
+      nh = mix(nh, blurH, clamp(0.48 * wlen, 0.0, 0.78));
 
-    // 3. 飛沙漫入筆觸溝槽（讓原本撥開見光的字畫逐漸被風沙吹散覆蓋）
-    float duneWave = 0.5 + 0.5*sin(px.x*0.06 - uTime*6.5 + sin(px.y*0.04)*2.5);
-    float flyGrain = hash21(floor(px*0.5) + floor(uTime*24.0)*5.3);
-    float targetCover = uBase * (0.78 + 0.28*duneWave + (flyGrain - 0.5)*0.18);
-    float fillRate = clamp(0.026 * wlen * (0.45 + 0.55*streak), 0.0, 0.08);
-    nh = mix(nh, targetCover, fillRate);
+      float duneWave = 0.5 + 0.5*sin(px.x*0.06 - uTime*6.5 + sin(px.y*0.04)*2.5);
+      float flyGrain = hash21(floor(px*0.5) + floor(uTime*24.0)*5.3);
+      float targetCover = uBase * (0.76 + 0.26*duneWave + (flyGrain - 0.5)*0.18);
+      float fillRate = clamp(0.022 * wlen * (0.45 + 0.55*streak), 0.0, 0.07);
+      nh = mix(nh, targetCover, fillRate);
+    }
   }
 
   // 手指筆刷
@@ -461,7 +509,6 @@ float hash21(vec2 p){
   p3+=dot(p3,p3.yzx+33.33);
   return fract((p3.x+p3.y)*p3.z);
 }
-// 保持與模擬網格一致的寬高比，避免全螢幕切換瞬間拉伸變扁
 vec2 aspectCoverUV(vec2 fragCoord, vec2 canvasSize, vec2 simSize){
   float cAsp = canvasSize.x / max(1.0, canvasSize.y);
   float sAsp = simSize.x / max(1.0, simSize.y);
@@ -570,7 +617,7 @@ void main(){
   o = vec4(texture(uSrc, sampleUV).r, 0., 0., 1.);
 }`;
 
-const sp = prog(VS, SIM_FS),  SL = locs(sp, ['uPrev','uSimSize','uWind','uTalus','uFlow','uTime','uDt','uCount','uBrush','uBrushPrev','uSettleRate','uBase']);
+const sp = prog(VS, SIM_FS),  SL = locs(sp, ['uPrev','uSimSize','uWind','uTalus','uFlow','uTime','uDt','uCount','uBrush','uBrushPrev','uSettleRate','uBase','uWindMain']);
 const rp = prog(VS, REND_FS), RL = locs(rp, ['uHeight','uCanvas','uSimSize','uLight','uTime','uAbsorb','uLightBoost']);
 const fp = prog(VS, FILL_FS), FL = locs(fp, ['uBase','uAmp','uSeed']);
 const cp = prog(VS, COPY_FS), CL = locs(cp, ['uSrc','uSrcSize','uDest']);
@@ -716,8 +763,8 @@ function toUV(e){
 
 let hasStartedDrawingInStage1 = false;
 let stage1DrawStartTime = 0;   // 階段一首次下筆作畫的時間點（秒）
-let preGustTriggered = false;  // 作畫中段（7.5 秒）前導陣風標記
-let freeDrawStartTime = 0;     // 階段五自由創作時下筆起算的定時微風計時器
+let drawingPhase = false;      // 是否處於階段一作畫期間
+let finishRequested = false;   // 使用者是否已按「完成了」
 
 canvas.addEventListener('pointerdown', e => {
   e.preventDefault();
@@ -728,18 +775,13 @@ canvas.addEventListener('pointerdown', e => {
 
   const nowSec = experienceNow() / 1000;
 
-  // 階段一：使用者開始觸碰作畫時，啟動 15 秒計時並切換為「試著用沙，將它們描繪或寫出來……」
+  // 階段一：使用者開始觸碰作畫時，啟動 20 秒計時並切換為「試著用沙，將它們描繪或寫出來……」
   if(currentStage === STAGE.STAGE_1){
     if(!stage1DrawStartTime) stage1DrawStartTime = nowSec;
     if(!hasStartedDrawingInStage1){
       hasStartedDrawingInStage1 = true;
       setCap(TEXTS.STAGE_1_DRAW);
     }
-  }
-
-  // 階段五：自由創作模式下，若開始作畫且尚未啟動定時微風計時，記錄起始時間
-  if(currentStage === STAGE.STAGE_5 && !freeDrawStartTime && !windStart){
-    freeDrawStartTime = nowSec;
   }
 });
 
@@ -759,58 +801,58 @@ canvas.addEventListener('pointermove', e => {
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
 
-/* ---------- 2. 強化「沙被吹散」的觸發邏輯 (triggerWind) ---------- */
+/* ---------- 2. 風吹邏輯：區分作畫中途輕微風動 vs 確認完成後階段二大風 ---------- */
 let windStart = 0;
-let windDurCurrent = CONFIG.WIND_DUR;
-let windPeakStrength = 1.65;
-let stage2TransitionTriggered = false;
+let ambientStart = 0;
+let nextGust = 0;
 
-function triggerWind(isMainStage2 = true){
+function triggerWind(){
   const now = experienceNow() / 1000;
   windStart = now;
-  windDurCurrent = isMainStage2 ? CONFIG.WIND_DUR : 3.2;
-  windPeakStrength = isMainStage2 ? 1.75 : 0.95;
+  ambientStart = 0;
 
   // 視覺微震與模糊回饋
   canvas.classList.add('wind-active');
-  setTimeout(() => canvas.classList.remove('wind-active'), windDurCurrent * 1000);
+  setTimeout(() => canvas.classList.remove('wind-active'), CONFIG.WIND_DUR * 1000);
 
   // 若裝置支援震動，提供輕微觸覺回饋
   try {
-    if(navigator.vibrate) navigator.vibrate(isMainStage2 ? [40, 60, 80] : [25]);
+    if(navigator.vibrate) navigator.vibrate([40, 60, 80]);
   } catch(e){}
 
-  if(isMainStage2){
-    // 疊加階段二精確文案
-    setCap(TEXTS.STAGE_2_WIND);
-
-    // 若目前在階段一，推進至階段二敘事流程
-    if(currentStage === STAGE.STAGE_1 && !stage2TransitionTriggered){
-      stage2TransitionTriggered = true;
-      advanceToStage2();
-    } else if(currentStage === STAGE.STAGE_5){
-      // 階段五自由創作時滿 15 秒再次吹散沙畫，文案停留後自動淡出
-      const v = narrativeVer;
-      setTimeout(() => {
-        if(v === narrativeVer && currentStage === STAGE.STAGE_5){
-          clearCap();
-        }
-      }, 5200);
-    }
-  }
+  // 疊加階段二精確文案
+  setCap(TEXTS.STAGE_2_WIND);
 }
 
-function windLevel(now){
-  if(!windStart) return 0;
-  const t = (now - windStart) / windDurCurrent;
-  if(t >= 1){
-    windStart = 0;
-    return 0;
+function getWindState(now){
+  // 1. 階段二主大風（使用者確認完成後觸發）
+  if(windStart > 0){
+    const t = (now - windStart) / CONFIG.WIND_DUR;
+    if(t >= 1){
+      windStart = 0;
+      return {level: 0, isMain: 0};
+    }
+    if(t <= 0) return {level: 0, isMain: 0};
+    const wave = Math.sin(Math.PI * t) * (0.85 + 0.35 * Math.sin(Math.PI * 3.0 * t));
+    return {level: CONFIG.MAIN_WIND_STR * Math.max(0, wave), isMain: 1.0};
   }
-  if(t <= 0) return 0;
-  // 多波陣風曲線，讓沙畫產生明顯的吹散、拉絲與模糊效果
-  const wave = Math.sin(Math.PI * t) * (0.85 + 0.35 * Math.sin(Math.PI * 3.0 * t));
-  return windPeakStrength * Math.max(0, wave);
+
+  // 2. 作畫中途的輕柔微風（力度小，僅輕微拂動沙粒表面）
+  if(drawingPhase && stage1DrawStartTime > 0){
+    if(!nextGust) nextGust = stage1DrawStartTime + 7.0;
+    if(!ambientStart && now >= nextGust) ambientStart = now;
+    if(ambientStart > 0){
+      const t = (now - ambientStart) / CONFIG.AMBIENT_GUST_DUR;
+      if(t >= 1){
+        ambientStart = 0;
+        nextGust = now + 7.0 + Math.random() * 4.0;
+        return {level: 0, isMain: 0};
+      }
+      return {level: CONFIG.AMBIENT_GUST_STR * Math.sin(Math.PI * Math.max(0, t)), isMain: 0.0};
+    }
+  }
+
+  return {level: 0, isMain: 0};
 }
 
 /* ---------- 五階段互動敘事 State Management ---------- */
@@ -826,6 +868,25 @@ function setCap(t){
 }
 function clearCap(){
   capWrap.style.opacity = '0';
+}
+function setBtns(list){
+  capBtns.innerHTML = '';
+  for(const [label, cb] of list){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', cb);
+    capBtns.appendChild(b);
+  }
+}
+function ask(opts){
+  return new Promise(res => {
+    capWrap.style.opacity = '1';
+    setBtns(opts.map(o => [o[0], () => {
+      setBtns([]);
+      res(o[1]);
+    }]));
+  });
 }
 
 function waitExp(ms, ver){
@@ -861,46 +922,87 @@ function waitUntilExp(pred, ver){
   });
 }
 
-// 階段一：珍視與建構 (沙的凝聚)
-async function startStage1(){
+function finishDrawing(){
+  if(currentStage !== STAGE.STAGE_1 || finishRequested) return;
+  finishRequested = true;
+  drawingPhase = false;
+  ambientStart = 0;
+  doneBtn.style.display = 'none';
+  setBtns([]);
+}
+doneBtn.addEventListener('click', finishDrawing);
+
+// 完整五階段互動敘事主流程
+async function runNarrativeFlow(){
   const ver = ++narrativeVer;
   currentStage = STAGE.STAGE_1;
   hasStartedDrawingInStage1 = false;
   stage1DrawStartTime = 0;
-  preGustTriggered = false;
-  freeDrawStartTime = 0;
-  stage2TransitionTriggered = false;
+  drawingPhase = true;
+  finishRequested = false;
   stage3PushTime = 0;
   windStart = 0;
+  ambientStart = 0;
+  nextGust = 0;
   targetLightBoost = 0.0;
+  setBtns([]);
+  doneBtn.style.display = 'none';
   resetBtn.classList.remove('show');
   bar.classList.remove('hidden');
   showTab.classList.remove('show');
 
-  // 初始引導文案：「請在心中想起那些你重視的人、事、物。」
+  // 階段一 (初始引導)：「請在心中想起那些你重視的人、事、物。」
   setCap(TEXTS.STAGE_1_INIT);
 
-  // 3.8 秒後若尚未觸碰，切換為「試著用沙，將它們描繪或寫出來……」並開始計時
-  const ok = await waitExp(3800, ver);
+  // 若 3.8 秒後尚未觸碰，切換為「試著用沙，將它們描繪或寫出來……」並開始計時
+  let ok = await waitExp(3800, ver);
   if(!ok || ver !== narrativeVer) return;
-  if(currentStage === STAGE.STAGE_1){
-    if(!hasStartedDrawingInStage1){
-      hasStartedDrawingInStage1 = true;
-      setCap(TEXTS.STAGE_1_DRAW);
-    }
-    if(!stage1DrawStartTime){
-      stage1DrawStartTime = experienceNow() / 1000;
-    }
+  if(!hasStartedDrawingInStage1){
+    hasStartedDrawingInStage1 = true;
+    setCap(TEXTS.STAGE_1_DRAW);
   }
-}
+  if(!stage1DrawStartTime){
+    stage1DrawStartTime = experienceNow() / 1000;
+  }
 
-// 階段二：脆弱與消散 (沙的不可控) -> 階段三 -> 階段四 -> 階段五
-async function advanceToStage2(){
-  const ver = ++narrativeVer;
+  // 等待作畫滿 20 秒
+  ok = await waitUntilExp(() => {
+    return stage1DrawStartTime > 0 && (experienceNow() / 1000 - stage1DrawStartTime) >= CONFIG.DRAW_TIME;
+  }, ver);
+  if(!ok || ver !== narrativeVer) return;
+
+  // 滿 20 秒後向用戶確認是否完成
+  setCap(TEXTS.STAGE_1_ASK);
+  const ans = await ask([
+    ['還沒，繼續', 'more'],
+    ['完成了', 'done']
+  ]);
+  if(ver !== narrativeVer) return;
+
+  if(ans === 'more'){
+    doneBtn.style.display = 'block';
+    setCap(TEXTS.STAGE_1_MORE);
+    setTimeout(() => {
+      if(ver === narrativeVer && drawingPhase) clearCap();
+    }, 3500);
+    ok = await waitUntilExp(() => finishRequested, ver);
+    if(!ok || ver !== narrativeVer) return;
+  } else {
+    finishDrawing();
+  }
+
+  drawingPhase = false;
+  ambientStart = 0;
+  nextGust = 0;
+  doneBtn.style.display = 'none';
+  clearCap();
+  ok = await waitExp(600, ver);
+  if(!ok) return;
+
+  // 階段二：確認完成後吹起大風，浮現階段二消散文案
   currentStage = STAGE.STAGE_2;
-
-  // 等待微風吹散沙畫與階段二文案沉澱
-  let ok = await waitExp(CONFIG.WIND_DUR * 1000 + 2200, ver);
+  triggerWind();
+  ok = await waitExp(CONFIG.WIND_DUR * 1000 + 2200, ver);
   if(!ok) return;
 
   // 階段三：發現與恆常 (推沙見光)
@@ -947,9 +1049,8 @@ async function advanceToStage2(){
   ok = await waitExp(6800, ver);
   if(!ok) return;
 
-  // 階段五：自由發揮與重置 (結束流程)
+  // 階段五：自由發揮與重置 (結束流程) — 文案：「歡迎自由創作」
   currentStage = STAGE.STAGE_5;
-  freeDrawStartTime = 0;
   clearCap();
   ok = await waitExp(850, ver);
   if(!ok) return;
@@ -958,7 +1059,7 @@ async function advanceToStage2(){
   resetBtn.classList.add('show'); // 顯示「🔄 結束並重置 (給下一位)」按鈕
 
   // 引導文字停留後平滑淡出，進入無干擾的「自由創作模式」
-  ok = await waitExp(6200, ver);
+  ok = await waitExp(4500, ver);
   if(!ok) return;
   clearCap();
 }
@@ -972,7 +1073,7 @@ function resetExperience(){
   lightBoost = 0.0;
   targetLightBoost = 0.0;
   setTool('push');
-  startStage1();
+  runNarrativeFlow();
 }
 
 resetBtn.addEventListener('click', resetExperience);
@@ -1017,30 +1118,10 @@ function frame(nowMs){
   // 平滑過渡底層燈箱亮度清晰度
   lightBoost += (targetLightBoost - lightBoost) * Math.min(1.0, dt * 1.8);
 
-  // 階段一：從開始作畫起算，7.5 秒先吹起第一陣輕微風動，滿 15 秒觸發主微風吹散並進入階段二
-  if(currentStage === STAGE.STAGE_1 && stage1DrawStartTime > 0){
-    const elapsed = now - stage1DrawStartTime;
-    if(!preGustTriggered && elapsed >= CONFIG.PRE_GUST_SEC){
-      preGustTriggered = true;
-      triggerWind(false); // 第一陣微風擾動沙畫
-    }
-    if(!stage2TransitionTriggered && elapsed >= CONFIG.INTERACT_WIND_SEC){
-      triggerWind(true);  // 滿 15 秒正式觸發階段二微風與消散文案
-    }
-  }
-
   // 階段三：偵測使用者撥開沙層手勢，讓底層光線逐漸清晰
   if(currentStage === STAGE.STAGE_3 && pointers.size > 0){
     stage3PushTime += dt;
     targetLightBoost = Math.min(1.0, stage3PushTime / CONFIG.STAGE3_PUSH_NEED);
-  }
-
-  // 階段五（自由創作模式）：每次開始作畫後滿 15 秒自動再次觸發微風吹散，不會「只被吹一次」
-  if(currentStage === STAGE.STAGE_5 && freeDrawStartTime > 0 && !windStart){
-    if((now - freeDrawStartTime) >= CONFIG.INTERACT_WIND_SEC){
-      freeDrawStartTime = 0;
-      triggerWind(true);
-    }
   }
 
   const b = new Float32Array(40), bp = new Float32Array(40);
@@ -1056,12 +1137,13 @@ function frame(nowMs){
   });
   pointers.forEach(p => { p.pu = p.u; p.pv = p.v; });
 
+  const ws = getWindState(now);
   gl.useProgram(sp);
   gl.viewport(0, 0, simW, simH);
   gl.uniform1i(SL.uPrev, 0);
   gl.uniform2f(SL.uSimSize, simW, simH);
-  const wl = windLevel(now);
-  gl.uniform2f(SL.uWind, wl, wl * 0.16);
+  gl.uniform2f(SL.uWind, ws.level, ws.level * 0.14);
+  gl.uniform1f(SL.uWindMain, ws.isMain);
   gl.uniform1f(SL.uTalus, CONFIG.TALUS);
   gl.uniform1f(SL.uFlow, CONFIG.FLOW);
   gl.uniform1f(SL.uTime, now);
@@ -1074,6 +1156,7 @@ function frame(nowMs){
   step();
   gl.uniform1i(SL.uCount, 0);
   gl.uniform2f(SL.uWind, 0, 0);
+  gl.uniform1f(SL.uWindMain, 0);
   for(let i = 0; i < CONFIG.RELAX_STEPS; i++) step();
   render(now);
 }
@@ -1132,7 +1215,7 @@ function syncViewportAndAspect(){
   resizeTimer = setTimeout(() => {
     if(!portraitPaused && experienceStarted){
       resizeCanvas();
-      rebuildSim(true); // 保留現有沙畫且依新比例重新對齊網格，不拉伸變扁
+      rebuildSim(true);
     }
   }, 150);
 }
@@ -1178,16 +1261,14 @@ function updateOrientationAndResize(){
     return;
   }
 
-  // 當偵測為橫向時，平滑淡出遮罩
   rotateNotice.classList.remove('show');
 
   if(!experienceStarted){
     resizeCanvas();
     rebuildSim(false);
     experienceStarted = true;
-    startStage1();
+    runNarrativeFlow();
   } else {
-    // 橫放恢復或視窗改變時，重新計算 Canvas 寬高並等比例保留沙畫
     syncViewportAndAspect();
   }
 }
